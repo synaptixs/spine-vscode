@@ -1,0 +1,85 @@
+{
+  "name": "spine-vscode",
+  "displayName": "Spine",
+  "description": "Spine's Product Knowledge Graph in the editor: callers, blast radius, untested code and docs above your code, over MCP.",
+  "version": "0.0.1",
+  "publisher": "synaptixs",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/synaptixs/spine-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.140.0",
+    "node": ">=22"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "main": "./out/src/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode Spine starts no process and makes no tool call. Trust the folder to use it.",
+      "restrictedConfigurations": [
+        "spine.serverPath"
+      ]
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "spine.doctor",
+        "title": "Spine: Doctor (check the server)"
+      }
+    ],
+    "configuration": {
+      "title": "Spine",
+      "properties": {
+        "spine.serverPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Path to an installed `orchestrator-mcp`. Empty (the default) starts Spine with the pinned `uvx` line, so only `uv` needs to be installed."
+        }
+      }
+    },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "spine.mcp",
+        "label": "Spine"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "lint": "eslint .",
+    "typecheck": "tsc -p . --noEmit",
+    "test:unit": "npm run compile && mocha 'out/test/unit/**/*.test.js'",
+    "test:contract": "npm run compile && mocha --timeout 600000 'out/test/contract/**/*.test.js'",
+    "test:integration": "npm run compile && node out/test/integration/run.js",
+    "test": "npm run test:unit && npm run test:contract && npm run test:integration"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "10.0.10",
+    "@types/node": "24.19.2",
+    "@types/vscode": "1.140.0",
+    "@vscode/test-electron": "3.1.0",
+    "eslint": "10.12.0",
+    "mocha": "12.0.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.2",
+    "zod": "4.6.7"
+  }
+}

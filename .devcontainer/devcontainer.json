@@ -1,0 +1,8 @@
+{
+  "name": "spine-vscode",
+  "build": { "dockerfile": "Dockerfile" },
+  // node_modules in a volume: an `npm ci` in the container must not rewrite the host's tree.
+  "mounts": ["source=spine-vscode-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume"],
+  "postCreateCommand": "sudo chown node node_modules && npm ci",
+  "customizations": { "vscode": { "extensions": ["dbaeumer.vscode-eslint"] } }
+}
