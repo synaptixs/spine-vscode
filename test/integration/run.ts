@@ -95,6 +95,11 @@ async function main() {
       },
     ],
     ["real", async () => launch("real", {}, false, {})],
+    [
+      "lenses",
+      async () =>
+        launch("lenses", process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {}, false, {}),
+    ],
   ];
   // The D8 probe is evidence-gathering, not a gate: run it by name (`probe`), never by default.
   if (only === "probe") {

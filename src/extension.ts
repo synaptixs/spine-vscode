@@ -9,6 +9,7 @@
 import * as vscode from "vscode";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
 import { SPINE_VERSION, spineLaunch } from "./launch";
+import { SpineLenses } from "./lenses";
 
 export interface SpineApi {
   readonly trusted: boolean;
@@ -37,6 +38,14 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
 
   const doctor = () => client.callTool("doctor", {});
 
+  const lenses = new SpineLenses(() => client, folder);
+  let refresh: NodeJS.Timeout | undefined;
+  const changedOnDisk = () => {
+    clearTimeout(refresh);
+    refresh = setTimeout(() => lenses.invalidate(), 500);
+  };
+  const watcher = vscode.workspace.createFileSystemWatcher("**/*");
+
   context.subscriptions.push(
     definitionsChanged,
     { dispose: () => void client.close() },
@@ -44,12 +53,37 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
       onDidChangeMcpServerDefinitions: definitionsChanged.event,
       provideMcpServerDefinitions: mcpDefinitions,
     }),
-    vscode.workspace.onDidGrantWorkspaceTrust(() => definitionsChanged.fire()),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      definitionsChanged.fire();
+      lenses.invalidate();
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration("spine.serverPath")) return;
       void client.close();
       client = newClient();
       definitionsChanged.fire();
+      lenses.invalidate();
+    }),
+    lenses,
+    watcher,
+    watcher.onDidChange(changedOnDisk),
+    watcher.onDidCreate(changedOnDisk),
+    watcher.onDidDelete(changedOnDisk),
+    vscode.workspace.onDidSaveTextDocument(() => lenses.invalidate()),
+    vscode.languages.registerCodeLensProvider({ scheme: "file" }, lenses),
+    vscode.languages.registerHoverProvider({ scheme: "file" }, lenses),
+    vscode.commands.registerCommand("spine.showCallers", async (id: string, uri?: vscode.Uri, line?: number) => {
+      try {
+        const where = await lenses.callers(id);
+        if (uri && line !== undefined && vscode.window.activeTextEditor) {
+          await vscode.commands.executeCommand("editor.action.showReferences", uri, new vscode.Position(line, 0), where);
+        }
+        return where;
+      } catch (err) {
+        if (err instanceof RestrictedWorkspaceError) showTrustNotice();
+        else void vscode.window.showErrorMessage(`Spine: ${(err as Error).message}`);
+        return [];
+      }
     }),
     vscode.commands.registerCommand("spine.doctor", async () => {
       try {

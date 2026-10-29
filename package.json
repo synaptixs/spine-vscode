@@ -39,6 +39,11 @@
       {
         "command": "spine.doctor",
         "title": "Spine: Doctor (check the server)"
+      },
+      {
+        "command": "spine.showCallers",
+        "title": "Spine: Show callers",
+        "enablement": "false"
       }
     ],
     "configuration": {

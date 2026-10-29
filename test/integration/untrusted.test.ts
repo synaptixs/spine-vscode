@@ -19,6 +19,15 @@ describe("in an untrusted folder (D12)", () => {
     assert.equal(fs.existsSync(marker), false, "the sentinel server was started");
   });
 
+  it("shows no lenses on an open file and still starts nothing", async () => {
+    const doc = await vscode.workspace.openTextDocument(`${process.env.SPINE_FIXTURE}/shop/cart.py`);
+    await vscode.window.showTextDocument(doc);
+    const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", doc.uri);
+    assert.deepEqual(lenses, []);
+    await sleep(1000);
+    assert.equal(fs.existsSync(marker), false, "the sentinel server was started");
+  });
+
   it("offers VS Code no Spine server to start", async () => {
     assert.deepEqual((await spineApi()).mcpDefinitions(), []);
   });
