@@ -73,7 +73,7 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     return this.views.get(idOf(uri))?.document ?? "";
   }
 
-  /** For the integration suite only: `activate` exposes it in VS Code's test mode, never to users. */
+  /** For the integration suites only: `activate` exposes it only when loaded from source (src/hooks.ts), never to users. */
   api() {
     return {
       list: () => this.review().list(),

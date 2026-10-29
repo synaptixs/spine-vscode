@@ -15,6 +15,14 @@
   server. A remote approval is a signed record, not a gate, and the message after it names who the
   server recorded. While `spine.server` is set, the extension offers VS Code no local Spine server,
   and it refuses when two servers offer the plan tools or the answering server changes mid-review.
+- Company sign-in proven locally (SSPN-243 step E): a throwaway Keycloak (`test/keycloak/`, pinned by
+  digest, no password in the repo) and a `company` run by name that drives the extension through
+  VS Code's own sign-in. A planner's approval is recorded under their email, a reader cannot approve
+  and a forced call is refused by the server, and a no-token check scans what the run leaves. Not in
+  CI: a person signs in.
+- The integration hooks are also exposed in Development mode (an extension loaded from source),
+  still never to an installed extension: VS Code shows no dialog in a test window, so the sign-in
+  run happens in a normal one.
 
 - CodeLens and hover (SSPN-242): counts above every function and class from Spine's
   `file_insights` (callers as a floor, untested reach, possible untraced calls or "not tracked"),

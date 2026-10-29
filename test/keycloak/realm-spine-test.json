@@ -1,0 +1,93 @@
+{
+  "realm": "spine-test",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "accessTokenLifespan": 300,
+  "groups": [
+    {
+      "name": "spine-readers"
+    },
+    {
+      "name": "spine-planners"
+    }
+  ],
+  "users": [
+    {
+      "username": "planner",
+      "email": "planner@example.test",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "Planner",
+      "enabled": true,
+      "groups": [
+        "/spine-planners"
+      ],
+      "realmRoles": [
+        "default-roles-spine-test"
+      ]
+    },
+    {
+      "username": "reader",
+      "email": "reader@example.test",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "Reader",
+      "enabled": true,
+      "groups": [
+        "/spine-readers"
+      ],
+      "realmRoles": [
+        "default-roles-spine-test"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "spine-vscode",
+      "name": "Spine for VS Code (local test)",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "http://127.0.0.1:33418/*",
+        "http://localhost:33418/*",
+        "https://vscode.dev/redirect"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "protocolMappers": [
+        {
+          "name": "roles from groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "roles",
+            "full.path": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "spine audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "http://127.0.0.1:8765/mcp",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@
 import * as vscode from "vscode";
 import { type LmTools, localCalls, remoteCalls, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
+import { exposesTestHooks } from "./hooks";
 import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
 import { SpinePlans } from "./plans";
@@ -24,7 +25,7 @@ export interface SpineApi {
   readonly trusted: boolean;
   doctor(): Promise<unknown>;
   mcpDefinitions(): vscode.McpServerDefinition[];
-  /** Only in VS Code's test mode (the integration suite). */
+  /** Only when loaded from source, for the integration suites (src/hooks.ts). */
   plans?: ReturnType<SpinePlans["api"]>;
 }
 
@@ -141,7 +142,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     },
     doctor,
     mcpDefinitions,
-    plans: context.extensionMode === vscode.ExtensionMode.Test ? plans.api() : undefined,
+    plans: exposesTestHooks(context.extensionMode, vscode.ExtensionMode.Production) ? plans.api() : undefined,
   };
 }
 
