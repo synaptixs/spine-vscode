@@ -26,4 +26,20 @@ describe("in a trusted folder, with a sentinel server", () => {
     assert.ok(defs[0] instanceof vscode.McpStdioServerDefinition);
     assert.equal((defs[0] as vscode.McpStdioServerDefinition).command.endsWith("fake-orchestrator-mcp"), true);
   });
+
+  it("serves VS Code's chat at the spine.level setting, `plan` by default (D41)", async () => {
+    const defs = (await spineApi()).mcpDefinitions();
+    assert.deepEqual((defs[0] as vscode.McpStdioServerDefinition).env, { ORCHESTRATOR_MCP_LEVEL: "plan" });
+  });
+
+  it("offers no local server while spine.server names a remote one (D49)", async () => {
+    const spine = vscode.workspace.getConfiguration("spine");
+    await spine.update("server", "company-spine", vscode.ConfigurationTarget.Global);
+    try {
+      assert.deepEqual((await spineApi()).mcpDefinitions(), []);
+    } finally {
+      await spine.update("server", undefined, vscode.ConfigurationTarget.Global);
+    }
+    assert.equal((await spineApi()).mcpDefinitions().length, 1);
+  });
 });

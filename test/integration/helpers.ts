@@ -1,9 +1,15 @@
 import * as vscode from "vscode";
+import type { PlanView } from "../../src/review";
 
 export interface SpineApiForTests {
   readonly trusted: boolean;
   doctor(): Promise<unknown>;
   mcpDefinitions(): vscode.McpServerDefinition[];
+  plans: {
+    list(): Promise<{ plans: { intent_id: string; state: string }[]; count: number; truncated: boolean }>;
+    current(): PlanView | undefined;
+    decide(intentId: string, decision: { reject: boolean; note?: string }): Promise<PlanView>;
+  };
 }
 
 export async function spineApi(): Promise<SpineApiForTests> {

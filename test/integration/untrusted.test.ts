@@ -28,6 +28,18 @@ describe("in an untrusted folder (D12)", () => {
     assert.equal(fs.existsSync(marker), false, "the sentinel server was started");
   });
 
+  it("opens no plan and still starts nothing", async () => {
+    await vscode.commands.executeCommand("spine.openPlan", "CART-1");
+    await vscode.commands.executeCommand("spine.approvePlan");
+    await assert.rejects((await spineApi()).plans.list(), (err: Error) => err.name === "RestrictedWorkspaceError");
+    await sleep(1000);
+    assert.equal(fs.existsSync(marker), false, "the sentinel server was started");
+    assert.equal(
+      vscode.workspace.textDocuments.some((d) => d.uri.scheme === "spine-plan"),
+      false,
+    );
+  });
+
   it("offers VS Code no Spine server to start", async () => {
     assert.deepEqual((await spineApi()).mcpDefinitions(), []);
   });

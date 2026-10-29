@@ -27,7 +27,8 @@ export interface SpineClientOptions {
 }
 
 const stdio: TransportFactory = (launch, cwd) =>
-  new StdioClientTransport({ command: launch.command, args: launch.args, cwd, stderr: "pipe" });
+  // The SDK puts `env` on top of its default environment (PATH, HOME, …), so only the level is added.
+  new StdioClientTransport({ command: launch.command, args: launch.args, env: launch.env, cwd, stderr: "pipe" });
 
 /** The last few KB a server printed to stderr: the only clue when it exits before answering. */
 function stderrTail(transport: Transport): () => string {

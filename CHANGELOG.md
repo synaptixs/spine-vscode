@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Plan review (SSPN-243): **Spine: Open plan…** lists a folder's build documents and opens one
+  read-only beside its Markdown preview; Approve and Reject in its title bar, enabled only when
+  Spine says you may decide, with the reason on the status line otherwise; a rejection needs a
+  note. Every decision sends the digest of the text shown (`expected_digest`), so a plan edited
+  after it was read is refused and reopened. Locally the approver is `git config user.name`,
+  confirmed before the call. Needs Spine 3.66.0 (`sdlc_plan_document`).
+- `spine.level` (`pkg`/`plan`/`build`, default `plan`) sets `ORCHESTRATOR_MCP_LEVEL` for the local
+  server. It reaches VS Code's chat too: chat moves from Spine's `pkg` default to `plan`, 4 more tools.
+- `spine.server` sends plan review to a server in VS Code's MCP configuration, through VS Code's own
+  sign-in; the extension holds no token. `spine.serverRepo` names the repository's path on that
+  server. A remote approval is a signed record, not a gate, and the message after it names who the
+  server recorded. While `spine.server` is set, the extension offers VS Code no local Spine server,
+  and it refuses when two servers offer the plan tools or the answering server changes mid-review.
+
 - CodeLens and hover (SSPN-242): counts above every function and class from Spine's
   `file_insights` (callers as a floor, untested reach, possible untraced calls or "not tracked"),
   a peek at the callers on click, and `explain_symbol` on hover. Cached per file until a save or a

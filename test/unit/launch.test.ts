@@ -30,4 +30,11 @@ describe("spineLaunch", () => {
       args: [],
     });
   });
+
+  it("passes the level to the server, and nothing when there is none", () => {
+    assert.deepEqual(spineLaunch(undefined, "plan").env, { ORCHESTRATOR_MCP_LEVEL: "plan" });
+    assert.deepEqual(spineLaunch(" /opt/spine/bin/orchestrator-mcp ", " build ").env, { ORCHESTRATOR_MCP_LEVEL: "build" });
+    assert.equal("env" in spineLaunch(undefined, ""), false);
+    assert.equal("env" in spineLaunch(), false);
+  });
 });

@@ -5,22 +5,35 @@
  *  - the extension's own surfaces call Spine through its own stdio client (src/client.ts).
  * In Restricted Mode neither path starts a process (D12): the definition list is empty and the
  * client refuses before it creates a transport.
+ *
+ * Plan review (src/plans.ts) goes to `spine.server`: `local` uses the extension's own client;
+ * the name of a server in VS Code's MCP configuration goes through `vscode.lm`, so VS Code runs
+ * the sign-in (D19, D32). Lenses stay local either way (D34). While a remote server is named, the
+ * extension offers VS Code no local definition: VS Code names both servers' tools alike, and a
+ * plan must never be approved on the wrong one (D49).
  */
 import * as vscode from "vscode";
+import { type LmTools, localCalls, remoteCalls, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
 import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
+import { SpinePlans } from "./plans";
+import { gitUserName, PlanReview } from "./review";
 
 export interface SpineApi {
   readonly trusted: boolean;
   doctor(): Promise<unknown>;
   mcpDefinitions(): vscode.McpServerDefinition[];
+  /** Only in VS Code's test mode (the integration suite). */
+  plans?: ReturnType<SpinePlans["api"]>;
 }
 
 const TRUST_NOTICE = "Spine is off in Restricted Mode: it starts no process here. Trust this folder to use it.";
 
 export function activate(context: vscode.ExtensionContext): SpineApi {
-  const launch = () => spineLaunch(vscode.workspace.getConfiguration("spine").get<string>("serverPath"));
+  const settings = () => vscode.workspace.getConfiguration("spine");
+  const launch = () => spineLaunch(settings().get<string>("serverPath"), settings().get<string>("level"));
+  const server = () => settings().get<string>("server")?.trim() || "local";
   const folder = () => vscode.workspace.workspaceFolders?.[0]?.uri;
   const newClient = () =>
     new SpineClient({ launch: launch(), isTrusted: () => vscode.workspace.isTrusted, cwd: folder()?.fsPath });
@@ -29,16 +42,34 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
   const definitionsChanged = new vscode.EventEmitter<void>();
 
   const mcpDefinitions = (): vscode.McpServerDefinition[] => {
-    if (!vscode.workspace.isTrusted) return [];
-    const { command, args } = launch();
-    const server = new vscode.McpStdioServerDefinition("Spine", command, args, {}, SPINE_VERSION);
-    server.cwd = folder();
-    return [server];
+    if (!vscode.workspace.isTrusted || server() !== "local") return [];
+    const { command, args, env } = launch();
+    const definition = new vscode.McpStdioServerDefinition("Spine", command, args, env ?? {}, SPINE_VERSION);
+    definition.cwd = folder();
+    return [definition];
   };
 
   const doctor = () => client.callTool("doctor", {});
 
   const lenses = new SpineLenses(() => client, folder);
+  let remote: SpineCalls | undefined;
+  const calls = (): SpineCalls => {
+    const name = server();
+    if (name === "local") return localCalls(() => client);
+    if (remote?.server !== name) remote = remoteCalls(name, lmTools);
+    return remote;
+  };
+  const review = new PlanReview({
+    calls,
+    // Remotely the server reads only the checkouts its admin listed, by their path on the server.
+    repo: () => (server() === "local" ? folder()?.fsPath : settings().get<string>("serverRepo")?.trim() || undefined),
+    isTrusted: () => vscode.workspace.isTrusted,
+    approverName: async () => {
+      const root = folder();
+      return root ? gitUserName(root.fsPath) : "";
+    },
+  });
+  const plans = new SpinePlans(() => review, showTrustNotice);
   let refresh: NodeJS.Timeout | undefined;
   const changedOnDisk = () => {
     clearTimeout(refresh);
@@ -58,13 +89,17 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
       lenses.invalidate();
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (!event.affectsConfiguration("spine.serverPath")) return;
+      if (["spine.serverPath", "spine.level", "spine.server", "spine.serverRepo"].some((s) => event.affectsConfiguration(s))) {
+        plans.invalidate();
+      }
+      if (!["spine.serverPath", "spine.level", "spine.server"].some((s) => event.affectsConfiguration(s))) return;
       void client.close();
       client = newClient();
       definitionsChanged.fire();
       lenses.invalidate();
     }),
     lenses,
+    plans,
     watcher,
     watcher.onDidChange(changedOnDisk),
     watcher.onDidCreate(changedOnDisk),
@@ -106,8 +141,22 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     },
     doctor,
     mcpDefinitions,
+    plans: context.extensionMode === vscode.ExtensionMode.Test ? plans.api() : undefined,
   };
 }
+
+/** The remote path: VS Code's own MCP connection, which holds the sign-in, never the extension (D19). */
+const lmTools: LmTools = {
+  names: () => vscode.lm.tools.map((t) => t.name),
+  invoke: async (name, input) => {
+    const result = await vscode.lm.invokeTool(name, { input, toolInvocationToken: undefined });
+    return result.content.map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : "")).join("");
+  },
+  // Internal and undocumented (D8 probe, VS Code 1.142): re-check on every VS Code bump.
+  start: async () => {
+    await vscode.commands.executeCommand("workbench.mcp.startServer", "*", { waitForLiveTools: true });
+  },
+};
 
 function showTrustNotice(): void {
   void vscode.window.showWarningMessage(TRUST_NOTICE, "Manage Workspace Trust").then((choice) => {

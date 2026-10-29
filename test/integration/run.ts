@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
+import { planFixture } from "../support/planFixture";
 
 export const VSCODE_VERSION = "1.142.0";
 
@@ -33,6 +34,7 @@ async function launch(
   trust: boolean,
   env: Record<string, string>,
   userFiles: Record<string, unknown> = {},
+  folder: string = fixture,
 ) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `spine-vsx-${suite}-`));
   const userData = path.join(dir, "user-data");
@@ -43,7 +45,7 @@ async function launch(
   }
   const exe = process.env.VSCODE_PATH ?? (await downloadAndUnzipVSCode(VSCODE_VERSION));
   const args = [
-    fixture,
+    folder,
     "--no-sandbox",
     "--disable-gpu-sandbox",
     "--disable-updates",
@@ -59,7 +61,7 @@ async function launch(
   ];
   const code = await new Promise<number | null>((resolve) => {
     const child = spawn(exe, args, {
-      env: { ...process.env, SPINE_SUITE: suite, SPINE_FIXTURE: fixture, ...env },
+      env: { ...process.env, SPINE_SUITE: suite, SPINE_FIXTURE: folder, ...env },
       stdio: "inherit",
     });
     child.on("exit", resolve);
@@ -99,6 +101,24 @@ async function main() {
       "lenses",
       async () =>
         launch("lenses", process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {}, false, {}),
+    ],
+    [
+      "plans",
+      async () => {
+        const plans = await planFixture();
+        try {
+          await launch(
+            "plans",
+            process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {},
+            false,
+            { SPINE_PLAN_ID: plans.intentId, SPINE_PLAN_FILE: plans.planFile },
+            {},
+            plans.root,
+          );
+        } finally {
+          plans.dispose();
+        }
+      },
     ],
   ];
   // The D8 probe is evidence-gathering, not a gate: run it by name (`probe`), never by default.
