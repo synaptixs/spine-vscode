@@ -79,7 +79,17 @@ async function launch(
  * up (test/keycloak/up.sh); SPINE_SERVER_PATH must be a Spine with the plan tools (3.66.0+).
  */
 const ISSUER = "http://localhost:8180/realms/spine-test";
-const SPINE_URL = "http://127.0.0.1:8765/mcp";
+// Another provider (the live Entra run, D20) is given at run time, so no tenant name is written here:
+// SPINE_COMPANY_ENV, a file of ORCHESTRATOR_MCP_* lines laid over the Keycloak ones; SPINE_COMPANY_URL,
+// the URL VS Code connects to (a TLS proxy in front of 127.0.0.1:8765); SPINE_COMPANY_CLIENT_ID; and
+// SPINE_COMPANY_EMAIL, the approver the planner run expects.
+const SPINE_URL = process.env.SPINE_COMPANY_URL ?? "http://127.0.0.1:8765/mcp";
+
+function envFile(file: string | undefined): Record<string, string> {
+  if (!file) return {};
+  const lines = fs.readFileSync(file, "utf8").split("\n").filter((l) => /^[A-Z_]+=/.test(l));
+  return Object.fromEntries(lines.map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]));
+}
 
 async function company(role: string | undefined) {
   if (role !== "planner" && role !== "reader") throw new Error("usage: run.js company planner|reader");
@@ -99,6 +109,7 @@ async function company(role: string | undefined) {
       ORCHESTRATOR_MCP_RESOURCE_URL: SPINE_URL,
       ORCHESTRATOR_MCP_ROLE_MAP: "spine-readers=spine:read; spine-planners=spine:read spine:plan",
       ORCHESTRATOR_MCP_REPOS: path.join(out, "repos.yaml"),
+      ...envFile(process.env.SPINE_COMPANY_ENV),
     },
     stdio: ["ignore", log, log],
   });
@@ -116,8 +127,9 @@ async function company(role: string | undefined) {
       SPINE_SERVER_REPO: plans.root,
       SPINE_COMPANY_OUT: path.join(out, "findings.json"),
       SPINE_ENV_OUT: path.join(out, "env.json"),
+      SPINE_COMPANY_EMAIL: process.env.SPINE_COMPANY_EMAIL ?? `${role}@example.test`,
     };
-    const mcp = { servers: { "company-spine": { type: "http", url: SPINE_URL, oauth: { clientId: "spine-vscode" } } } };
+    const mcp = { servers: { "company-spine": { type: "http", url: SPINE_URL, oauth: { clientId: process.env.SPINE_COMPANY_CLIENT_ID ?? "spine-vscode" } } } };
     const settings = { "spine.server": "company-spine", "spine.serverRepo": plans.root };
     // One normal window (VS Code shows no dialog in a test window and keeps no sign-in there):
     // the driver extension runs the suite while the person answers VS Code's sign-in, then quits.

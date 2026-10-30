@@ -18,7 +18,7 @@ import { sleep, spineApi, type SpineApiForTests } from "./helpers";
 const ROLE = process.env.SPINE_COMPANY_ROLE!;
 const ID = process.env.SPINE_PLAN_ID!;
 const REPO = process.env.SPINE_SERVER_REPO!;
-const EMAIL = `${ROLE}@example.test`;
+const EMAIL = process.env.SPINE_COMPANY_EMAIL!;
 const findings: Record<string, unknown> = { vscode: vscode.version, role: ROLE };
 
 const spineTools = () => vscode.lm.tools.map((t) => t.name).filter((n) => /_sdlc_/.test(n));

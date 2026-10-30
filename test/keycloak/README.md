@@ -38,3 +38,29 @@ Then nothing else. The checks run, and the window closes by itself. It waits up 
 Afterwards the no-token check scans the profile, Spine's log and the extension host's
 environment. Everything lands in `/tmp/svx-<role>-…/`: `findings.json`, `approval.json` (planner),
 `spine.log`, `no-token.txt`, and the VS Code profile in `v/`.
+
+## Another provider (the live Entra run)
+
+The same run works against any OIDC provider. Its settings are given at run time, so no tenant or
+client name is written into this repo:
+
+```bash
+NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem" \
+SPINE_COMPANY_ENV=/path/to/provider.env \
+SPINE_COMPANY_URL=https://<spine-host>/mcp \
+SPINE_COMPANY_CLIENT_ID=<public client id> \
+SPINE_COMPANY_EMAIL=<the planner's sign-in name> \
+SPINE_SERVER_PATH=/path/to/orchestrator-mcp node out/test/integration/run.js company planner
+```
+
+`provider.env` holds the `ORCHESTRATOR_MCP_*` lines for the provider, which are laid over the
+Keycloak ones. `SPINE_COMPANY_URL` is a TLS proxy in front of `127.0.0.1:8765`. Two things learned
+on Entra:
+
+- **Register `http://localhost` (no port) as a "Mobile and desktop" redirect.** For a
+  Microsoft-hosted sign-in, VS Code uses its built-in Microsoft provider. It still uses the
+  configured `oauth.clientId`, but it listens on a random localhost port, so `127.0.0.1:33418` alone
+  fails with AADSTS50011.
+- **The proxy must send `Host: 127.0.0.1:8765`.** Spine listening on 127.0.0.1 refuses any other
+  Host with 421 "Invalid Host header". A call with no token is refused (401) before that check
+  runs, so a no-token preflight does not show the problem.
