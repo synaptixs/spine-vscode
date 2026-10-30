@@ -15,7 +15,7 @@
  * Builds (src/runs.ts, src/builds.ts) run on the local server only, at `spine.level=build` (D21).
  */
 import * as vscode from "vscode";
-import { BuildRuns } from "./builds";
+import { BuildRuns, nodeGit } from "./builds";
 import { type LmTools, localCalls, remoteCalls, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
 import { exposesTestHooks } from "./hooks";
@@ -23,6 +23,7 @@ import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
 import { SpinePlans } from "./plans";
 import { gitUserName, PlanReview } from "./review";
+import { ReviewDiffs } from "./review-diff";
 import { SpineRuns } from "./runs";
 
 export interface SpineApi {
@@ -92,7 +93,15 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
       return root ? gitUserName(root.fsPath) : "";
     },
   });
-  const runs = new SpineRuns({ builds: () => builds, unavailable: buildBlocker, folder: () => folder()?.fsPath, onRestricted: showTrustNotice });
+  const diffs = new ReviewDiffs(nodeGit);
+  const runs = new SpineRuns({
+    builds: () => builds,
+    unavailable: buildBlocker,
+    folder: () => folder()?.fsPath,
+    onRestricted: showTrustNotice,
+    diffs,
+    state: context.workspaceState,
+  });
   const plans = new SpinePlans(() => review, showTrustNotice, buildBlocker, (id) => runs.build(id));
   let refresh: NodeJS.Timeout | undefined;
   const changedOnDisk = () => {
@@ -127,6 +136,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     lenses,
     plans,
     runs,
+    diffs,
     watcher,
     watcher.onDidChange(changedOnDisk),
     watcher.onDidCreate(changedOnDisk),

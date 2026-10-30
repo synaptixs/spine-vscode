@@ -17,7 +17,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from "@vscode/test-electron";
 import { scanEnv, scanTree } from "../support/noToken";
 import { planFixture } from "../support/planFixture";
-import { runStore, seed } from "../support/seedRuns";
+import { gitWorktree, runStore, seed } from "../support/seedRuns";
 import { buildVsix, packageVersion } from "../support/vsix";
 
 export const VSCODE_VERSION = "1.142.0";
@@ -276,12 +276,17 @@ async function main() {
       async () => {
         const plans = await planFixture();
         const store = runStore();
+        const reviewed = gitWorktree("review", "feat/REVIEW-1/tax");
+        const finished = gitWorktree("done", "feat/DONE-1/tax");
         try {
           // Seeded through Spine's own Python, in a store of the suite's own; the extension host
           // inherits SPINE_RUN_STATE/SPINE_RUN_ARTIFACTS and must hand them to its server (D88).
           const repo = fs.realpathSync(plans.root);
           seed(store, { runId: "budget0000000001", intentId: plans.intentId, repo, status: "parked", kind: "budget", spentUsd: 3.5, fromEditor: true });
           seed(store, { runId: "elsewhere0000001", intentId: "X-1", repo: "/somewhere/else", status: "done" });
+          // SSPN-245: a live review park on a real worktree, and a finished build with a branch to fetch.
+          seed(store, { runId: "review0000000001", intentId: "REVIEW-1", repo, status: "parked", kind: "review", live: true, fromEditor: true, worktree: reviewed.root, commitBranch: "feat/REVIEW-1/tax" });
+          seed(store, { runId: "done000000000001", intentId: "DONE-1", repo, status: "done", fromEditor: true, worktree: finished.root, commitBranch: "feat/DONE-1/tax" });
           await launch(
             "runs",
             { "spine.level": "build", ...(process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {}) },
@@ -292,6 +297,8 @@ async function main() {
           );
         } finally {
           store.dispose();
+          reviewed.dispose();
+          finished.dispose();
           plans.dispose();
         }
       },

@@ -27,6 +27,11 @@ export interface Seed {
   /** Write the `build.json` an editor start leaves, so a resume can rebuild its command. */
   fromEditor?: boolean;
   branch?: string;
+  /** The run's own worktree. With `kind: "review"`, Spine's own `review_diff` measures it there, and
+   *  the patch is saved and bound by digest as the real gate does (SSPN-245). */
+  worktree?: string;
+  /** The branch the run commits on, as its record names it. */
+  commitBranch?: string;
 }
 
 export interface RunStoreDirs {
@@ -61,6 +66,7 @@ const live = new Map<string, ChildProcess[]>();
 
 const SEED = `
 import json, sys, time
+from pathlib import Path
 from orchestrator.sdlc.runstate import RunStore, RunRecord
 from orchestrator.sdlc.escalate import ApprovalStore, default_approval_dir, raise_approval
 
@@ -72,13 +78,22 @@ s = json.loads(sys.argv[1])
 artifacts = s["artifacts"]
 record = RunRecord(run_id=s["runId"], source="file://seed", repo=s["repo"], intent_id=s["intentId"],
                    started_at=time.time(), artifacts_dir=artifacts, spent_usd=s.get("spentUsd", 0.0),
-                   phase=s.get("phase", "implement"), pid=s.get("pid", 0))
+                   phase=s.get("phase", "implement"), pid=s.get("pid", 0),
+                   worktree=s.get("worktree", ""), branch=s.get("commitBranch", ""))
 approval_id = ""
 if s.get("kind"):
+    digest, diff = s.get("digest", ""), None
+    if s["kind"] == "review" and s.get("worktree"):
+        from orchestrator.sdlc.review_park import diff_digest, review_diff
+        diff = review_diff(Path(s["worktree"]))
+        digest = digest or diff_digest(diff)
     a = raise_approval(run_id=s["runId"], issue_key="", title=s["kind"] + " for the contract test",
                        reason="seeded", store=ApprovalStore(root=default_approval_dir()), notifier=Quiet(),
-                       kind=s["kind"], digest=s.get("digest", ""))
+                       kind=s["kind"], digest=digest)
     approval_id = a.approval_id
+    if diff is not None:
+        from orchestrator.sdlc.review_park import saved_diff_path
+        saved_diff_path(Path(artifacts), approval_id).write_text(diff, encoding="utf-8")
 record.status = s["status"]
 record.approval_id = approval_id
 record.parked_reason = "seeded park" if s["status"] == "parked" else ""
@@ -110,4 +125,30 @@ export function seed(store: RunStoreDirs, s: Seed): { approvalId: string } {
     encoding: "utf8",
   });
   return { approvalId: (JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { approval_id: string }).approval_id };
+}
+
+/**
+ * A git repository standing in for a run's worktree, outside any checkout. `review`: one commit,
+ * then a modified, an added (untracked) and a deleted file, uncommitted, as a build leaves it at
+ * its review park. `done`: the build's commit on `branch`, as an approved run leaves it.
+ */
+export function gitWorktree(shape: "review" | "done", branch = "feat/INT-7/tax"): { root: string; dispose(): void } {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-wt-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  git("config", "user.name", "Seed");
+  git("config", "user.email", "seed@example.test");
+  fs.writeFileSync(path.join(root, "tax.py"), "def tax(x):\n    return x * 0.2\n");
+  fs.writeFileSync(path.join(root, "old.py"), "OLD = 1\n");
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");
+  git("switch", "-q", "-c", branch);
+  fs.writeFileSync(path.join(root, "tax.py"), "def tax(x):\n    return round(x * 0.2, 2)\n");
+  fs.writeFileSync(path.join(root, "test_tax.py"), "from tax import tax\n\ndef test_tax():\n    assert tax(10) == 2\n");
+  fs.rmSync(path.join(root, "old.py"));
+  if (shape === "done") {
+    git("add", "-A");
+    git("commit", "-q", "-m", "build");
+  }
+  return { root: fs.realpathSync(root), dispose: () => fs.rmSync(root, { recursive: true, force: true }) };
 }

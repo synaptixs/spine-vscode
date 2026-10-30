@@ -167,11 +167,11 @@ describe("builds against the real Spine (SSPN-244)", function () {
     assert.equal(after.row.alive, false);
   });
 
-  it("shows a live review park with no decision on it (D89)", async () => {
+  it("offers a live review park's Review, never the panel's Approve (D89; decided on the diff, SSPN-245)", async () => {
     seed(store, { runId: "review0000000001", intentId: "OTHER-5", repo, status: "parked", kind: "review", digest: "01".repeat(16), live: true, fromEditor: true });
     const v = await viewOf("review0000000001");
     assert.equal(v.waiting?.kind, "review");
-    assert.deepEqual(actionsFor(v), ["cancel", "openPlan"]);
+    assert.deepEqual(actionsFor(v), ["review", "cancel", "openPlan"]);
     await assert.rejects(builds.approve(v, yes()), /diff review/);
   });
 
