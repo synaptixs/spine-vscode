@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import { actionsFor, BuildRuns, type BuildPrompts, type RunView } from "../../src/builds";
 import { localCalls, SpineRefusal } from "../../src/calls";
 import { SpineClient } from "../../src/client";
-import { SPINE_VERSION, spineLaunch } from "../../src/launch";
+import { spineLaunch } from "../../src/launch";
 import { gitUserName } from "../../src/review";
 import { GIT_NAME, type PlanFixture, planFixture } from "../support/planFixture";
 import { runStore, type RunStoreDirs, seed } from "../support/seedRuns";
@@ -24,12 +24,6 @@ const yes = (note = "seen in the contract test"): BuildPrompts => ({
   info: () => undefined,
   warn: () => undefined,
 });
-
-/** 3.67.1 or later: a decision on a park whose process is gone moves the run on (D87). */
-const hasD87 = (() => {
-  const [maj, min, patch] = SPINE_VERSION.split(".").map(Number);
-  return maj > 3 || (maj === 3 && (min > 67 || (min === 67 && patch >= 1)));
-})();
 
 describe("builds against the real Spine (SSPN-244)", function () {
   let fixture: PlanFixture;
@@ -115,7 +109,7 @@ describe("builds against the real Spine (SSPN-244)", function () {
 
   it("approves a 'build anyway?' park bound to its digest, under the git name", async () => {
     const digest = "ab".repeat(16);
-    const { approvalId } = seed(store, { runId: "verdict000000001", intentId: "OTHER-1", repo, status: "parked", kind: "verdict", digest });
+    const { approvalId } = seed(store, { runId: "verdict000000001", intentId: "OTHER-1", repo, status: "parked", kind: "verdict", digest, fromEditor: true });
     const v = await viewOf("verdict000000001");
     assert.equal(v.waiting?.digest, digest);
     // A view of another digest is refused, and nothing is recorded.
@@ -128,7 +122,7 @@ describe("builds against the real Spine (SSPN-244)", function () {
   });
 
   it("drops a park only with a note", async () => {
-    seed(store, { runId: "design0000000001", intentId: "OTHER-2", repo, status: "parked", kind: "design", digest: "ef".repeat(16) });
+    seed(store, { runId: "design0000000001", intentId: "OTHER-2", repo, status: "parked", kind: "design", digest: "ef".repeat(16), fromEditor: true });
     const v = await viewOf("design0000000001");
     assert.equal(await builds.drop(v, yes("   ")), false);
     assert.equal((await viewOf("design0000000001")).waiting?.kind, "design");
@@ -136,10 +130,31 @@ describe("builds against the real Spine (SSPN-244)", function () {
     assert.equal((await viewOf("design0000000001")).waiting, null);
   });
 
-  (hasD87 ? it : it.skip)("a dropped park whose process is gone is abandoned, and the plan builds again (D87, Spine 3.67.1)", async () => {
-    seed(store, { runId: "stuck00000000001", intentId: "OTHER-3", repo, status: "parked", kind: "budget" });
-    assert.equal(await builds.drop(await viewOf("stuck00000000001"), yes("not worth more")), true);
-    assert.equal((await viewOf("stuck00000000001")).row.status, "abandoned");
+  it("a dropped park whose process is gone is abandoned, and the plan builds again (D87, Spine 3.67.1)", async () => {
+    // A budget park exits its process once it has asked. The D91 test above leaves one on this
+    // plan too, so every such park of the plan is dropped, and the plan must then build again.
+    seed(store, { runId: "stuck00000000001", intentId: fixture.intentId, repo, status: "parked", kind: "budget", fromEditor: true });
+    await assert.rejects(builds.start(fixture.intentId), (err: unknown) => err instanceof SpineRefusal && /already being built/.test(err.message));
+    const held = (await builds.list()).views.filter((v) => v.row.intent_id === fixture.intentId && v.row.status === "parked" && !v.row.alive);
+    assert.ok(held.some((v) => v.row.run_id === "stuck00000000001"));
+    for (const v of held) {
+      assert.equal(await builds.drop(v, yes("not worth more")), true);
+      assert.equal((await viewOf(v.row.run_id)).row.status, "abandoned");
+    }
+    const { runId } = await builds.start(fixture.intentId);
+    const ended = await settle(runId);
+    assert.equal(ended.row.spent_usd, 0);
+  });
+
+  it("lists a run started from a terminal read-only, and an editor's run with its actions (D90, D95)", async () => {
+    seed(store, { runId: "terminal00000001", intentId: "OTHER-6", repo, status: "failed" });
+    seed(store, { runId: "editor0000000001", intentId: "OTHER-6", repo, status: "failed", fromEditor: true });
+    const terminal = await viewOf("terminal00000001");
+    assert.equal(terminal.row.from_editor, false);
+    assert.deepEqual(actionsFor(terminal), ["openPlan"]);
+    const editor = await viewOf("editor0000000001");
+    assert.equal(editor.row.from_editor, true);
+    assert.deepEqual(actionsFor(editor), ["resume", "openPlan"]);
   });
 
   it("cancels a live run; its record says abandoned", async () => {
@@ -153,7 +168,7 @@ describe("builds against the real Spine (SSPN-244)", function () {
   });
 
   it("shows a live review park with no decision on it (D89)", async () => {
-    seed(store, { runId: "review0000000001", intentId: "OTHER-5", repo, status: "parked", kind: "review", digest: "01".repeat(16), live: true });
+    seed(store, { runId: "review0000000001", intentId: "OTHER-5", repo, status: "parked", kind: "review", digest: "01".repeat(16), live: true, fromEditor: true });
     const v = await viewOf("review0000000001");
     assert.equal(v.waiting?.kind, "review");
     assert.deepEqual(actionsFor(v), ["cancel", "openPlan"]);

@@ -129,7 +129,7 @@ describe("the start dialog", () => {
   });
 });
 
-/** A fake Spine with 3.67.0's three build tools: decisions behave as the real ones do. */
+/** A fake Spine with 3.67.1's three build tools: decisions behave as the real ones do. */
 function fakeSpine(opts: { rows?: RunRow[]; waits?: Record<string, Waiting | null>; remote?: boolean } = {}) {
   const seen: { tool: string; args: Record<string, unknown> }[] = [];
   const decided = new Set<string>();

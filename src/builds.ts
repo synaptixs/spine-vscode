@@ -1,7 +1,7 @@
 /**
  * Builds from the editor (SSPN-244): start a build of an approved plan, watch this checkout's runs,
  * and answer what a parked run waits on, over Spine's `sdlc_build`, `sdlc_builds` and
- * `sdlc_build_decide` (3.67.0). This module never imports `vscode`; src/runs.ts draws it, so the
+ * `sdlc_build_decide` (3.67.1). This module never imports `vscode`; src/runs.ts draws it, so the
  * unit tests drive the same decisions.
  *
  * - A build is always safe and detached: Spine commits on a branch in its own worktree, never in
@@ -10,8 +10,8 @@
  * - Budget and "build anyway?" parks are decided with a note under the git name, the name Spine
  *   itself would record locally (D74, as P2's D43). A budget park resumes only after the person
  *   raised the cap in the checkout's `.env`; the extension never reads or writes `.env` (D91).
- * - Runs started from a terminal are read-only (D90). Spine 3.67.0 does not say which runs those
- *   are, so `from_editor` is honoured when Spine sends it; without it Resume is offered and
+ * - Runs started from a terminal are read-only (D90): Spine 3.67.1 marks them `from_editor: false`
+ *   (D95). A server that leaves the field out is treated as the editor's, so Resume is offered and
  *   Spine's own refusal is shown.
  * - Builds run on this machine only (D21); Restricted Mode calls nothing (D12).
  */
@@ -32,7 +32,7 @@ export interface RunRow {
   worktree: string;
   parked_reason: string;
   approval_id: string;
-  /** Not sent by Spine 3.67.0; `false` marks a run started from a terminal. */
+  /** `false` marks a run started from a terminal (Spine 3.67.1, D95); older servers leave it out. */
   from_editor?: boolean;
 }
 

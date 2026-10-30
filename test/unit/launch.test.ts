@@ -1,9 +1,9 @@
 import * as assert from "node:assert/strict";
 import { spineLaunch } from "../../src/launch";
 
-// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.67.0). A literal on
+// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.67.1). A literal on
 // purpose: drift in the version or in the extras list must fail here, not in a user's editor.
-const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.67.0";
+const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.67.1";
 
 describe("spineLaunch", () => {
   it("starts Spine with the guide's pinned uvx line by default", () => {
