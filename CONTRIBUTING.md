@@ -5,6 +5,9 @@
   trust, the pinned launch line) gets a mutation check: break it on purpose and watch a test fail.
 - **The gate**, all green before a PR: `npm run lint`, `npm run typecheck`, `npm run test:unit`,
   `npm run test:contract`, `npm run test:integration`. CI runs the same three jobs.
+- **Company sign-in is evidence, not a gate.** `node out/test/integration/run.js company planner|reader`
+  needs Keycloak up and a person to sign in: see `test/keycloak/README.md`. Run it when the remote
+  path changes, and before a release that touches it.
 - **Spine is a pinned contract.** `src/launch.ts` names one Spine version. A Spine release bumps it
   in the same PR as the contract test run against that release; the unit test copies the line by
   hand so drift fails loudly.

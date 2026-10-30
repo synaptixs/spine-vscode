@@ -30,7 +30,10 @@
       "supported": "limited",
       "description": "In Restricted Mode Spine starts no process and makes no tool call. Trust the folder to use it.",
       "restrictedConfigurations": [
-        "spine.serverPath"
+        "spine.serverPath",
+        "spine.level",
+        "spine.server",
+        "spine.serverRepo"
       ]
     }
   },
@@ -44,6 +47,22 @@
         "command": "spine.showCallers",
         "title": "Spine: Show callers",
         "enablement": "false"
+      },
+      {
+        "command": "spine.openPlan",
+        "title": "Spine: Open plan…"
+      },
+      {
+        "command": "spine.approvePlan",
+        "title": "Spine: Approve plan",
+        "icon": "$(check)",
+        "enablement": "spine.planCanDecide"
+      },
+      {
+        "command": "spine.rejectPlan",
+        "title": "Spine: Reject plan",
+        "icon": "$(close)",
+        "enablement": "spine.planCanDecide"
       }
     ],
     "configuration": {
@@ -54,6 +73,34 @@
           "default": "",
           "scope": "machine-overridable",
           "markdownDescription": "Path to an installed `orchestrator-mcp`. Empty (the default) starts Spine with the pinned `uvx` line, so only `uv` needs to be installed."
+        },
+        "spine.level": {
+          "type": "string",
+          "enum": [
+            "pkg",
+            "plan",
+            "build"
+          ],
+          "default": "plan",
+          "scope": "window",
+          "markdownEnumDescriptions": [
+            "The code and docs graph only: lenses, blast radius, reading a plan.",
+            "Adds the build document and its approval.",
+            "Adds the runs that write code and spend, with your own keys."
+          ],
+          "markdownDescription": "How much of Spine the local server shows, to this extension and to VS Code's chat (`ORCHESTRATOR_MCP_LEVEL`). Approving a plan needs `plan` or `build`."
+        },
+        "spine.server": {
+          "type": "string",
+          "default": "local",
+          "scope": "window",
+          "markdownDescription": "Where plans are reviewed: `local` (the default) starts Spine on this machine; the name of a server in VS Code's MCP configuration sends plan review there, and VS Code runs its sign-in. Lenses stay local. While a remote server is named, the extension offers VS Code no local Spine server."
+        },
+        "spine.serverRepo": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "markdownDescription": "With `spine.server` set: this repository's path **on that server**, one of the checkouts its admin listed. A shared server reads no path from your machine."
         }
       }
     },
@@ -62,7 +109,31 @@
         "id": "spine.mcp",
         "label": "Spine"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "spine.approvePlan",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@1"
+        },
+        {
+          "command": "spine.rejectPlan",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "spine.approvePlan",
+          "when": "spine.planActive"
+        },
+        {
+          "command": "spine.rejectPlan",
+          "when": "spine.planActive"
+        }
+      ]
+    }
   },
   "scripts": {
     "compile": "tsc -p .",

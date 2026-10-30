@@ -41,6 +41,16 @@ describe("SpineClient", () => {
       const client = new SpineClient({ launch, isTrusted: () => true });
       await assert.rejects(client.start(), /Spine did not start[\s\S]*uv: no Python satisfies >=3\.12/);
     });
+
+    it("starts the server with the launch's environment, on top of the default one", async () => {
+      const launch = {
+        command: process.execPath,
+        args: ["-e", "console.error(`level=${process.env.ORCHESTRATOR_MCP_LEVEL} path=${!!process.env.PATH}`); process.exit(2)"],
+        env: { ORCHESTRATOR_MCP_LEVEL: "plan" },
+      };
+      const client = new SpineClient({ launch, isTrusted: () => true });
+      await assert.rejects(client.start(), /level=plan path=true/);
+    });
   });
 
   describe("in a trusted workspace", () => {

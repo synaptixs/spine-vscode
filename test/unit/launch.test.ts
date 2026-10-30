@@ -1,9 +1,9 @@
 import * as assert from "node:assert/strict";
 import { spineLaunch } from "../../src/launch";
 
-// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.64.0). A literal on
+// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.66.0). A literal on
 // purpose: drift in the version or in the extras list must fail here, not in a user's editor.
-const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.64.0";
+const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.66.0";
 
 describe("spineLaunch", () => {
   it("starts Spine with the guide's pinned uvx line by default", () => {
@@ -29,5 +29,12 @@ describe("spineLaunch", () => {
       command: "/opt/spine/bin/orchestrator-mcp",
       args: [],
     });
+  });
+
+  it("passes the level to the server, and nothing when there is none", () => {
+    assert.deepEqual(spineLaunch(undefined, "plan").env, { ORCHESTRATOR_MCP_LEVEL: "plan" });
+    assert.deepEqual(spineLaunch(" /opt/spine/bin/orchestrator-mcp ", " build ").env, { ORCHESTRATOR_MCP_LEVEL: "build" });
+    assert.equal("env" in spineLaunch(undefined, ""), false);
+    assert.equal("env" in spineLaunch(), false);
   });
 });
