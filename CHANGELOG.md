@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Spine pinned to 3.67.1. Dropping a budget or "build anyway?" stop whose process has gone now
+  ends the build (`abandoned`), so its plan can be built again; before, the plan stayed blocked.
+  Builds started with `orchestrator sdlc autorun` in a terminal are now shown read-only in the
+  Runs view, since Spine says which builds the editor started (`from_editor`).
 - Builds from the editor (SSPN-244), at `spine.level=build` on the local server: **Build** in an
   approved plan's title bar starts a safe build in the background from the current branch's last
   commit, after a dialog saying what is built and where the key and budget come from (the
@@ -14,7 +18,7 @@
   (and nothing else beyond the level): the MCP SDK hands a server only `HOME`, `LOGNAME`, `PATH`,
   `SHELL`, `TERM` and `USER`, so Spine kept the extension's runs under `/tmp`, apart from
   `orchestrator sdlc runs` in a terminal.
-- Spine pinned to 3.67.0 (the build tools `sdlc_build`, `sdlc_builds`, `sdlc_build_decide`).
+- Builds use Spine's build tools `sdlc_build`, `sdlc_builds` and `sdlc_build_decide` (new in 3.67.0).
 
 - Packaged as a private `.vsix`, version 0.1.0 (SSPN-275): `npm run package` builds it with the
   repository's pinned `vsce`, and the README's Install section says how to add it to VS Code. A
