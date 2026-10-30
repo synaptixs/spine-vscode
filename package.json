@@ -2,7 +2,7 @@
   "name": "spine-vscode",
   "displayName": "Spine",
   "description": "Spine's Product Knowledge Graph in the editor: callers, blast radius, untested code and docs above your code, over MCP.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "synaptixs",
   "private": true,
   "license": "MIT",
@@ -142,6 +142,8 @@
     "test:unit": "npm run compile && mocha 'out/test/unit/**/*.test.js'",
     "test:contract": "npm run compile && mocha --timeout 600000 'out/test/contract/**/*.test.js'",
     "test:integration": "npm run compile && node out/test/integration/run.js",
+    "package": "vsce package",
+    "test:package": "npm run compile && node out/test/package/check.js",
     "test": "npm run test:unit && npm run test:contract && npm run test:integration"
   },
   "dependencies": {
@@ -152,10 +154,14 @@
     "@types/node": "24.19.2",
     "@types/vscode": "1.140.0",
     "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.0.0",
     "eslint": "10.12.0",
     "mocha": "12.0.3",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
     "zod": "4.6.7"
+  },
+  "overrides": {
+    "@azure/msal-node": "7.1.0"
   }
 }
