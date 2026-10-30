@@ -1,11 +1,12 @@
-# Lint, type-check and unit tests; the contract test against the real pinned Spine (D10); the
-# extension-host suites in a real VS Code under xvfb (trust guard, sentinel control, real server).
+# Lint, type-check, unit tests and the package check (the real .vsix, SSPN-275); the contract test
+# against the real pinned Spine (D10); the extension-host suites in a real VS Code under xvfb (trust
+# guard, sentinel control, real server), then the packaged .vsix installed into a fresh profile.
 name: ci
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -23,6 +24,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
+      - run: npm run test:package
 
   contract:
     runs-on: ubuntu-latest
@@ -51,3 +53,4 @@ jobs:
           version: "0.8.0"
       - run: npm ci
       - run: xvfb-run -a npm run test:integration
+      - run: xvfb-run -a node out/test/integration/run.js installed

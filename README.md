@@ -6,6 +6,21 @@ spends nothing and needs no API key.
 
 **Status:** private preview, not on the Marketplace.
 
+## Install
+
+You get a `.vsix` file (for example `spine-vscode-0.1.0.vsix`). Install it in VS Code with
+**Extensions → ⋯ → Install from VSIX…**, or from a terminal:
+
+```
+code --install-extension spine-vscode-0.1.0.vsix
+```
+
+Then make sure [`uv`](https://docs.astral.sh/uv/) is installed (see Requirements) and open a
+folder you trust. The first start downloads Spine through `uv`, which takes a few seconds; after
+that it starts in about a second.
+
+To build the `.vsix` yourself from this repository: `npm ci && npm run compile && npm run package`.
+
 ## What you see
 
 - **Above each function and class**, a lens such as `2 callers (at least) · 1 untested in reach · 1 possible untraced call`.

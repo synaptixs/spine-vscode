@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Packaged as a private `.vsix`, version 0.1.0 (SSPN-275): `npm run package` builds it with the
+  repository's pinned `vsce`, and the README's Install section says how to add it to VS Code. A
+  check (`npm run test:package`) builds the real package and refuses sources, tests, fixtures,
+  source maps, contributor notes or any file over 1 MB. An integration run installs it into a
+  fresh profile and checks the lenses and the plan list there, and that the test hooks are absent.
 - Plan review (SSPN-243): **Spine: Open plan…** lists a folder's build documents and opens one
   read-only beside its Markdown preview; Approve and Reject in its title bar, enabled only when
   Spine says you may decide, with the reason on the status line otherwise; a rejection needs a
