@@ -40,6 +40,26 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   A decision covers exactly the text you were shown: if the plan changed since you opened it,
   nothing is recorded and the plan reopens. Locally you approve under `git config user.name`, and
   the extension shows that name before the call.
+- **Build** (at `spine.level` = `build`, on this machine only). An approved plan's title bar has a
+  **Build** button; the status line's tooltip says why it is greyed out when it is. A build runs in
+  the background from the last commit of your current branch (uncommitted changes are not included),
+  in Spine's own worktree: the change is committed on a local branch there, never in your checkout,
+  and nothing is pushed. It spends model tokens with your own key, which Spine reads from the
+  checkout's `.env`, as is the per-run cap `SDLC_RUN_BUDGET_USD` ($25 when unset). The extension
+  never reads or writes `.env`.
+- **Runs**, in the Spine sidebar: this checkout's builds, newest first, with their state, stage and
+  spend, and their stages underneath; runs of other repositories are counted, not shown. It refreshes
+  every 5 s while it is visible and a build is running, and otherwise when you open it.
+  - **Cancel** ends a build; its branch and worktree stay. **Open worktree** opens it in a new window.
+  - A build that stopped at its budget offers **Raise cap and resume…**: raise
+    `SDLC_RUN_BUDGET_USD` in `.env` first, then it is approved under your git name and resumed.
+    A "build anyway?" stop offers **Approve…** (then **Resume…**) and **Drop…**, which needs a note.
+  - A build waiting for a review of its diff shows "waiting for your review"; reviewing the diff
+    comes in a later version. Until then, review it in the worktree or with `orchestrator sdlc runs`.
+  - A build whose process has gone offers **Resume…**. Runs started from a terminal are shown, and
+    are decided in the terminal (`orchestrator sdlc runs`).
+  - The extension tells its Spine server where runs are kept (`TMPDIR`, `SPINE_RUN_STATE`,
+    `SPINE_RUN_ARTIFACTS`), so the panel and `orchestrator sdlc runs` in a terminal see the same runs.
 
 ## Settings
 
@@ -58,7 +78,7 @@ In Restricted Mode a workspace's own value for any of these is ignored.
 - [`uv`](https://docs.astral.sh/uv/). The extension starts Spine with one pinned line, so Spine itself does not need to be installed:
 
   ```
-  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.66.0' orchestrator-mcp
+  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.67.0' orchestrator-mcp
   ```
 
   `--python '>=3.12'` lets uv fetch a suitable Python where the system one is older (Debian 12, Ubuntu 22.04).

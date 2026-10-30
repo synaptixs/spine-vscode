@@ -17,6 +17,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from "@vscode/test-electron";
 import { scanEnv, scanTree } from "../support/noToken";
 import { planFixture } from "../support/planFixture";
+import { runStore, seed } from "../support/seedRuns";
 import { buildVsix, packageVersion } from "../support/vsix";
 
 export const VSCODE_VERSION = "1.142.0";
@@ -266,6 +267,31 @@ async function main() {
             plans.root,
           );
         } finally {
+          plans.dispose();
+        }
+      },
+    ],
+    [
+      "runs",
+      async () => {
+        const plans = await planFixture();
+        const store = runStore();
+        try {
+          // Seeded through Spine's own Python, in a store of the suite's own; the extension host
+          // inherits SPINE_RUN_STATE/SPINE_RUN_ARTIFACTS and must hand them to its server (D88).
+          const repo = fs.realpathSync(plans.root);
+          seed(store, { runId: "budget0000000001", intentId: plans.intentId, repo, status: "parked", kind: "budget", spentUsd: 3.5, fromEditor: true });
+          seed(store, { runId: "elsewhere0000001", intentId: "X-1", repo: "/somewhere/else", status: "done" });
+          await launch(
+            "runs",
+            { "spine.level": "build", ...(process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {}) },
+            false,
+            { ...store.env, SPINE_PLAN_ID: plans.intentId },
+            {},
+            plans.root,
+          );
+        } finally {
+          store.dispose();
           plans.dispose();
         }
       },

@@ -9,6 +9,11 @@ export interface SpineApiForTests {
     list(): Promise<{ plans: { intent_id: string; state: string }[]; count: number; truncated: boolean }>;
     current(): PlanView | undefined;
     decide(intentId: string, decision: { reject: boolean; note?: string }): Promise<PlanView>;
+    build(): { enabled: boolean; blocker: string | undefined };
+  };
+  runs: {
+    runs(): Promise<{ runId: string; status: string; actions: string[]; text: { label: string; description: string } }[]>;
+    message(): string | undefined;
   };
 }
 
