@@ -3,7 +3,7 @@
  * Spine's AGENT_GUIDE §3, so only `uv` has to be installed. Bump SPINE_VERSION on each Spine
  * release, together with the contract test run against it.
  */
-export const SPINE_VERSION = "3.64.0";
+export const SPINE_VERSION = "3.66.0";
 
 /** Every wheel-only language extra (Spine D23); `[all]` fails to install where Rust's grammar must build from source. */
 export const SPINE_EXTRAS = ["mcp", "docs", "c", "cpp", "csharp", "go", "java", "kotlin", "perl", "php", "sql", "typescript"] as const;

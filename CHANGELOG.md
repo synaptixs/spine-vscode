@@ -23,6 +23,8 @@
 - The integration hooks are also exposed in Development mode (an extension loaded from source),
   still never to an installed extension: VS Code shows no dialog in a test window, so the sign-in
   run happens in a normal one.
+- The pin moves to Spine 3.66.0, the first release with `sdlc_plan_document` and
+  `sdlc_approve(expected_digest)`.
 
 - CodeLens and hover (SSPN-242): counts above every function and class from Spine's
   `file_insights` (callers as a floor, untested reach, possible untraced calls or "not tracked"),

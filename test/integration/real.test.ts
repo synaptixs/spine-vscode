@@ -8,7 +8,7 @@ describe("in a trusted folder, with the real pinned server", () => {
     const t0 = Date.now();
     const report = (await api.doctor()) as { server: { version: string } };
     console.log(`      doctor from the extension host in ${Date.now() - t0} ms`);
-    assert.equal(report.server.version, "3.64.0");
+    assert.equal(report.server.version, "3.66.0");
   });
 
   it("offers VS Code the pinned uvx line as its Spine server", async () => {
