@@ -24,13 +24,22 @@ export interface PlanFixture {
   dispose(): void;
 }
 
-export async function planFixture(): Promise<PlanFixture> {
+/**
+ * `commit`: commit the copy before planning, as a developer would. A build starts from the
+ * branch's last commit and re-renders the plan there, so a plan made before that commit no
+ * longer matches its approval and the build parks at the plan gate (SSPN-244).
+ */
+export async function planFixture(opts: { commit?: boolean } = {}): Promise<PlanFixture> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-plans-"));
   fs.cpSync(FIXTURE, root, { recursive: true });
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
   git("init", "-q");
   git("config", "user.name", GIT_NAME);
   git("config", "user.email", "spine-test@example.invalid");
+  if (opts.commit) {
+    git("add", "-A");
+    git("-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture");
+  }
   const client = new SpineClient({ launch: spineLaunch(process.env.SPINE_SERVER_PATH, "plan"), isTrusted: () => true, cwd: root });
   try {
     const out = (await client.callTool("sdlc_plan", {

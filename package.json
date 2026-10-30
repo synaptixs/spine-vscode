@@ -63,6 +63,52 @@
         "title": "Spine: Reject plan",
         "icon": "$(close)",
         "enablement": "spine.planCanDecide"
+      },
+      {
+        "command": "spine.buildPlan",
+        "title": "Spine: Build plan",
+        "icon": "$(play)",
+        "enablement": "spine.planCanBuild"
+      },
+      {
+        "command": "spine.runs.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "spine.runs.cancel",
+        "title": "Cancel build…",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "spine.runs.resume",
+        "title": "Resume…",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "spine.runs.approve",
+        "title": "Approve…",
+        "icon": "$(check)"
+      },
+      {
+        "command": "spine.runs.drop",
+        "title": "Drop…",
+        "icon": "$(close)"
+      },
+      {
+        "command": "spine.runs.raiseCapAndResume",
+        "title": "Raise cap and resume…",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "spine.runs.openWorktree",
+        "title": "Open worktree",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "spine.runs.openPlan",
+        "title": "Open plan",
+        "icon": "$(book)"
       }
     ],
     "configuration": {
@@ -121,6 +167,11 @@
           "command": "spine.rejectPlan",
           "when": "resourceScheme == spine-plan",
           "group": "navigation@2"
+        },
+        {
+          "command": "spine.buildPlan",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@3"
         }
       ],
       "commandPalette": [
@@ -131,6 +182,99 @@
         {
           "command": "spine.rejectPlan",
           "when": "spine.planActive"
+        },
+        {
+          "command": "spine.buildPlan",
+          "when": "spine.planActive"
+        },
+        {
+          "command": "spine.runs.cancel",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.resume",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.raiseCapAndResume",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.approve",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.drop",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.openWorktree",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.openPlan",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "spine.runs.refresh",
+          "when": "view == spine.runs",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "spine.runs.cancel",
+          "when": "view == spine.runs && viewItem =~ /:cancel:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.resume",
+          "when": "view == spine.runs && viewItem =~ /:resume:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.raiseCapAndResume",
+          "when": "view == spine.runs && viewItem =~ /:raiseCapAndResume:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.approve",
+          "when": "view == spine.runs && viewItem =~ /:approve:/",
+          "group": "1_decide"
+        },
+        {
+          "command": "spine.runs.drop",
+          "when": "view == spine.runs && viewItem =~ /:drop:/",
+          "group": "1_decide"
+        },
+        {
+          "command": "spine.runs.openWorktree",
+          "when": "view == spine.runs && viewItem =~ /:openWorktree:/",
+          "group": "2_open"
+        },
+        {
+          "command": "spine.runs.openPlan",
+          "when": "view == spine.runs && viewItem =~ /:openPlan:/",
+          "group": "2_open"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "spine",
+          "title": "Spine",
+          "icon": "media/spine.svg"
+        }
+      ]
+    },
+    "views": {
+      "spine": [
+        {
+          "id": "spine.runs",
+          "name": "Runs"
         }
       ]
     }

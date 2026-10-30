@@ -27,7 +27,7 @@ export interface SpineClientOptions {
 }
 
 const stdio: TransportFactory = (launch, cwd) =>
-  // The SDK puts `env` on top of its default environment (PATH, HOME, …), so only the level is added.
+  // The SDK puts `env` on top of its default environment (PATH, HOME, …): the level and the run store (D88).
   new StdioClientTransport({ command: launch.command, args: launch.args, env: launch.env, cwd, stderr: "pipe" });
 
 /** The last few KB a server printed to stderr: the only clue when it exits before answering. */

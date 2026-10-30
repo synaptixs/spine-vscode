@@ -2,7 +2,8 @@
  * Plan review in the editor (SSPN-243, D27, D28): **Spine: Open plan…** lists the folder's plans,
  * the chosen one opens as a read-only `spine-plan:` document beside its Markdown preview, and
  * Approve/Reject sit in that document's title bar, enabled only when Spine says this caller may
- * decide (the status line gives the reason when not). No webview of our own.
+ * decide (the status line gives the reason when not). No webview of our own. **Build** sits beside
+ * them (SSPN-244, D93), enabled only on an approved plan where this window can build.
  *
  * The decisions themselves live in src/review.ts; this file only draws them.
  */
@@ -13,6 +14,7 @@ import { type PlanReview, type PlanView, type Prompts, statusText } from "./revi
 
 export const SCHEME = "spine-plan";
 const CAN_DECIDE = "spine.planCanDecide";
+const CAN_BUILD = "spine.planCanBuild";
 const ACTIVE = "spine.planActive";
 
 const planUri = (id: string) => vscode.Uri.from({ scheme: SCHEME, path: `/${id}.md` });
@@ -39,9 +41,15 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   private readonly subscriptions: vscode.Disposable[];
 
+  /**
+   * `buildBlocker` says why this window cannot build (level, server, trust), or `undefined`;
+   * `onBuild` starts a build of an approved plan (src/runs.ts, SSPN-244).
+   */
   constructor(
     private readonly review: () => PlanReview,
     private readonly onRestricted: () => void,
+    private readonly buildBlocker: () => string | undefined = () => "builds are not wired here",
+    private readonly onBuild: (intentId: string) => Promise<void> = async () => {},
   ) {
     this.subscriptions = [
       this.changed,
@@ -51,6 +59,7 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
       vscode.commands.registerCommand("spine.openPlan", (id?: string) => this.guarded(() => this.pickAndOpen(id))),
       vscode.commands.registerCommand("spine.approvePlan", (uri?: vscode.Uri) => this.guarded(() => this.decide(uri, false))),
       vscode.commands.registerCommand("spine.rejectPlan", (uri?: vscode.Uri) => this.guarded(() => this.decide(uri, true))),
+      vscode.commands.registerCommand("spine.buildPlan", (uri?: vscode.Uri) => this.guarded(() => this.build(uri))),
     ];
   }
 
@@ -78,6 +87,12 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     return {
       list: () => this.review().list(),
       current: () => (this.active ? this.views.get(this.active) : undefined),
+      /** What the Build button shows for the plan in front (SSPN-244, D93). */
+      build: () => {
+        const view = this.active ? this.views.get(this.active) : undefined;
+        const blocker = this.buildBlocker();
+        return { enabled: view?.state === "approved" && !blocker, blocker };
+      },
       decide: async (id: string, decision: { reject: boolean; note?: string }) => {
         const view = this.views.get(id);
         if (!view) throw new Error(`${id} is not open`);
@@ -127,6 +142,20 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     if (after) this.store(after);
   }
 
+  private async build(uri: vscode.Uri | undefined): Promise<void> {
+    const id = uri?.scheme === SCHEME ? idOf(uri) : this.active;
+    const view = id ? this.views.get(id) : undefined;
+    if (!view) {
+      void vscode.window.showInformationMessage("Spine: open a plan first (Spine: Open plan…).");
+      return;
+    }
+    if (view.state !== "approved") {
+      void vscode.window.showWarningMessage(`Spine: ${view.intentId} is ${view.state}: only an approved plan is built.`);
+      return;
+    }
+    await this.onBuild(view.intentId);
+  }
+
   private store(view: PlanView): PlanView {
     this.views.set(view.intentId, view);
     this.active = view.intentId;
@@ -140,12 +169,16 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     const doc = vscode.window.activeTextEditor?.document;
     if (doc?.uri.scheme === SCHEME) this.active = idOf(doc.uri);
     const view = doc && doc.uri.scheme !== SCHEME ? undefined : this.active ? this.views.get(this.active) : undefined;
+    const blocker = this.buildBlocker();
     void vscode.commands.executeCommand("setContext", CAN_DECIDE, view?.canDecide === true);
+    void vscode.commands.executeCommand("setContext", CAN_BUILD, view?.state === "approved" && !blocker);
     void vscode.commands.executeCommand("setContext", ACTIVE, view !== undefined);
     if (!view) return this.status.hide();
     const { text, tooltip } = statusText(view);
     this.status.text = view.canDecide ? text : `${text} $(lock)`;
-    this.status.tooltip = tooltip;
+    // A disabled title-bar button cannot say why, so the status line does (D93).
+    const build = view.state !== "approved" ? "Build: only an approved plan is built." : blocker ? `Build is off: ${blocker}.` : "";
+    this.status.tooltip = build ? `${tooltip}\n${build}` : tooltip;
     this.status.show();
   }
 

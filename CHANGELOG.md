@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Builds from the editor (SSPN-244), at `spine.level=build` on the local server: **Build** in an
+  approved plan's title bar starts a safe build in the background from the current branch's last
+  commit, after a dialog saying what is built and where the key and budget come from (the
+  checkout's `.env`). A **Runs** view in a new Spine sidebar lists this checkout's builds with their
+  stages; it polls every 5 s only while visible and a build is alive. Budget and "build anyway?"
+  stops are decided there with a note under the git name (**Raise cap and resume…**, **Approve…**,
+  **Drop…**); **Cancel** keeps the branch and worktree; a build whose process has gone offers
+  **Resume…**. A review of a build's diff is shown as waiting, and decided in a later version.
+- The extension now passes its Spine server `TMPDIR`, `SPINE_RUN_STATE` and `SPINE_RUN_ARTIFACTS`
+  (and nothing else beyond the level): the MCP SDK hands a server only `HOME`, `LOGNAME`, `PATH`,
+  `SHELL`, `TERM` and `USER`, so Spine kept the extension's runs under `/tmp`, apart from
+  `orchestrator sdlc runs` in a terminal.
+- Spine pinned to 3.67.0 (the build tools `sdlc_build`, `sdlc_builds`, `sdlc_build_decide`).
+
 - Packaged as a private `.vsix`, version 0.1.0 (SSPN-275): `npm run package` builds it with the
   repository's pinned `vsce`, and the README's Install section says how to add it to VS Code. A
   check (`npm run test:package`) builds the real package and refuses sources, tests, fixtures,
