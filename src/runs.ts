@@ -6,13 +6,24 @@
  *
  * Builds need the local server at `spine.level=build` (D21); anywhere else the view says why and
  * calls nothing.
+ *
+ * A review park (SSPN-245) opens in the diff editor (src/review-diff.ts) and is decided on the review
+ * that was shown: Approve/Reject on a run nobody has opened here opens it first and asks to read it.
+ * A decision Spine refuses because the diff moved reopens the new diff. With the view hidden, a
+ * build this editor started is watched every 30 s, and its review announced once (D101).
  */
 import { execFile } from "node:child_process";
 import * as vscode from "vscode";
-import { type BuildPrompts, type BuildRuns, type RunAction, type RunView, actionsFor, runText, shouldPoll, startMessage, type Stage } from "./builds";
+import { type BuildPrompts, type BuildRuns, type RunView, actionsFor, reviewsToAnnounce, runText, shouldPoll, shouldWatch, startMessage, type Stage } from "./builds";
+import { PlanMovedError } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
+import type { Opened, ReviewDiffs } from "./review-diff";
 
 export const POLL_MS = 5_000;
+/** D101: with the view hidden, how often a live editor build is checked for a review. */
+export const WATCH_MS = 30_000;
+/** The review approvals already announced, kept per workspace so a reload does not repeat them. */
+const ANNOUNCED = "spine.announcedReviews";
 
 type Node = { kind: "run"; view: RunView } | { kind: "stage"; stage: Stage; runId: string } | { kind: "note"; text: string };
 
@@ -35,7 +46,11 @@ export interface RunsOptions {
   unavailable: () => string | undefined;
   folder: () => string | undefined;
   onRestricted: () => void;
+  diffs: ReviewDiffs;
+  state: vscode.Memento;
 }
+
+const yes = (note: string): BuildPrompts => ({ confirm: async () => true, note: async () => note, info: () => undefined, warn: () => undefined });
 
 export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposable {
   private readonly changed = new vscode.EventEmitter<Node | undefined>();
@@ -45,12 +60,14 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
   private views: RunView[] = [];
   private poll = false;
   private readonly timer: NodeJS.Timeout;
+  private readonly watcher: NodeJS.Timeout;
   private readonly subscriptions: vscode.Disposable[];
 
   constructor(private readonly options: RunsOptions) {
     this.view = vscode.window.createTreeView("spine.runs", { treeDataProvider: this, showCollapseAll: true });
     this.timer = setInterval(() => this.tick(), POLL_MS);
-    const action = (name: RunAction, run: (view: RunView) => Promise<boolean>) =>
+    this.watcher = setInterval(() => void this.watch(), WATCH_MS);
+    const action = (name: string, run: (view: RunView) => Promise<boolean>) =>
       vscode.commands.registerCommand(`spine.runs.${name}`, (node?: Node) =>
         this.guarded(async () => {
           if (node?.kind !== "run") return;
@@ -61,6 +78,7 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
       this.changed,
       this.view,
       { dispose: () => clearInterval(this.timer) },
+      { dispose: () => clearInterval(this.watcher) },
       this.view.onDidChangeVisibility((e) => e.visible && this.refresh()),
       vscode.commands.registerCommand("spine.runs.refresh", () => this.refresh()),
       action("cancel", (v) => this.options.builds().cancel(v, prompts)),
@@ -68,6 +86,21 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
       action("approve", (v) => this.options.builds().approve(v, prompts)),
       action("drop", (v) => this.options.builds().drop(v, prompts)),
       action("raiseCapAndResume", (v) => this.options.builds().raiseCapAndResume(v, prompts)),
+      action("review", async (v) => {
+        await this.openReview(v);
+        return false;
+      }),
+      action("approveReview", (v) => this.decideReview(v, true)),
+      action("rejectReview", (v) => this.decideReview(v, false)),
+      action("openPatch", async (v) => {
+        const opened = this.options.diffs.opened(v.row.run_id, v.waiting?.approval_id) ?? (await this.options.diffs.read(await this.options.builds().readReview(v)));
+        await this.options.diffs.showPatch(opened);
+        return false;
+      }),
+      action("fetch", (v) => this.options.builds().fetch(v, prompts)),
+      // The diff editor's own title bar: the run is named in the document's URI.
+      vscode.commands.registerCommand("spine.review.approve", (uri?: vscode.Uri) => this.guarded(() => this.decideFromEditor(uri, true))),
+      vscode.commands.registerCommand("spine.review.reject", (uri?: vscode.Uri) => this.guarded(() => this.decideFromEditor(uri, false))),
       action("openWorktree", async (v) => {
         await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(v.row.worktree), { forceNewWindow: true });
         return false;
@@ -168,6 +201,7 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
       if (listed.truncated) notes.push({ kind: "note", text: `showing the newest ${listed.views.length} of ${listed.count} runs` });
       if (listed.notShown) notes.push({ kind: "note", text: `${listed.notShown} runs from other repositories or older versions, not shown` });
       if (!listed.views.length) this.view.message = "No builds yet. Open an approved plan (Spine: Open plan…) and press Build.";
+      this.announce(listed.views);
       return [...this.nodes, ...notes];
     } catch (err) {
       if (err instanceof RestrictedWorkspaceError) this.view.message = err.message;
@@ -187,7 +221,87 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
         return this.views.map((view) => ({ runId: view.row.run_id, status: view.row.status, actions: actionsFor(view), text: runText(view) }));
       },
       message: () => this.view.message,
+      review: async (runId: string) => {
+        const opened = await this.openReview(await this.viewOf(runId));
+        return {
+          files: opened.sides.map((s) => ({ path: s.change.path, status: s.change.status, left: s.left.toString(), right: s.right.toString() })),
+          patch: opened.patch.toString(),
+        };
+      },
+      approveReview: async (runId: string, note: string) => this.decideReview(await this.viewOf(runId), true, yes(note)),
+      fetch: async (runId: string) => this.options.builds().fetch(await this.viewOf(runId), yes("")),
     };
+  }
+
+  /** Read a review park, draw its diff, and offer the decision beside it. */
+  private async openReview(view: RunView): Promise<Opened> {
+    const opened = await this.options.diffs.read(await this.options.builds().readReview(view));
+    await this.options.diffs.show(opened);
+    const { row } = opened.review.view;
+    void vscode.window
+      .showInformationMessage(`Spine: reviewing ${row.intent_id || row.run_id}, ${opened.changes.length} files. Decide when you have read it.`, "Approve…", "Reject…", "Open patch")
+      .then((choice) => {
+        if (choice === "Open patch") void this.options.diffs.showPatch(opened);
+        else if (choice) void this.guarded(async () => void ((await this.decideReview(opened.review.view, choice === "Approve…")) && this.refresh()));
+      });
+    return opened;
+  }
+
+  /** Decide the review that was shown here; one nobody opened is opened first, to be read. */
+  private async decideReview(view: RunView, approve: boolean, ask: BuildPrompts = prompts): Promise<boolean> {
+    const opened = this.options.diffs.opened(view.row.run_id, view.waiting?.approval_id);
+    if (!opened) {
+      await this.openReview(view);
+      void vscode.window.showInformationMessage("Spine: the diff is open. Read it, then decide.");
+      return false;
+    }
+    const builds = this.options.builds();
+    try {
+      return approve ? await builds.approveReview(opened.review, opened.changes.length, ask) : await builds.rejectReview(opened.review, ask);
+    } catch (err) {
+      if (!(err instanceof PlanMovedError)) throw err;
+      void vscode.window.showWarningMessage("Spine: the diff changed since it was read, so that decision was not recorded. Here is the new one: read it, then decide.");
+      await this.openReview(view);
+      return false;
+    }
+  }
+
+  private async decideFromEditor(uri: vscode.Uri | undefined, approve: boolean): Promise<void> {
+    const runId = new URLSearchParams((uri ?? vscode.window.activeTextEditor?.document.uri)?.query ?? "").get("run");
+    if (!runId) return void vscode.window.showInformationMessage("Spine: open a build's review first (Runs view → Review).");
+    if (await this.decideReview(await this.viewOf(runId), approve)) this.refresh();
+  }
+
+  private async viewOf(runId: string): Promise<RunView> {
+    this.refresh();
+    await this.getChildren();
+    const found = this.views.find((v) => v.row.run_id === runId);
+    if (!found) throw new Error(`run ${runId} is not in this checkout's Runs view`);
+    return found;
+  }
+
+  /** D101: with the view hidden, look at a live editor build every 30 s and announce its review. */
+  private async watch(): Promise<void> {
+    if (!shouldWatch(this.views, this.view.visible) || this.options.unavailable()) return;
+    try {
+      this.views = (await this.options.builds().list({ poll: true })).views;
+      this.announce(this.views);
+    } catch {
+      // Shown when the view is next opened; a background check stays quiet.
+    }
+  }
+
+  private announce(views: RunView[]): void {
+    const seen = new Set(this.options.state.get<string[]>(ANNOUNCED, []));
+    const fresh = reviewsToAnnounce(views, seen);
+    if (!fresh.length) return;
+    for (const v of fresh) {
+      seen.add(v.waiting!.approval_id);
+      void vscode.window.showInformationMessage(`Spine: the build of ${v.row.intent_id || v.row.run_id} is waiting for your review.`, "Review").then((choice) => {
+        if (choice) void this.guarded(async () => void (await this.openReview(v)));
+      });
+    }
+    void this.options.state.update(ANNOUNCED, [...seen].slice(-200));
   }
 
   private tick(): void {

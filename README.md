@@ -54,8 +54,16 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   - A build that stopped at its budget offers **Raise cap and resume…**: raise
     `SDLC_RUN_BUDGET_USD` in `.env` first, then it is approved under your git name and resumed.
     A "build anyway?" stop offers **Approve…** (then **Resume…**) and **Drop…**, which needs a note.
-  - A build waiting for a review of its diff shows "waiting for your review"; reviewing the diff
-    comes in a later version. Until then, review it in the worktree or with `orchestrator sdlc runs`.
+  - A build waiting for a review of its diff offers **Review diff**: every changed file of the
+    build's worktree opens read-only in one diff editor, and **Open patch** shows the exact diff
+    Spine asks about. **Approve diff…** or **Reject diff…** then decides it under your git name, on
+    the diff you read: if the build changed it since, the decision is not recorded and the new diff
+    opens. A rejection needs a note; the build ends and its branch and worktree stay. While a build
+    you started is running, the extension checks it every 30 s even with the view closed, and tells
+    you once when it is waiting for your review.
+  - A finished build offers **Fetch into my checkout…**: its branch is fetched into your folder as a
+    new local branch. Your current branch and files are not touched, an existing branch of that name
+    is never overwritten, and nothing is pushed: push it yourself.
   - A build whose process has gone offers **Resume…**. Runs started from a terminal are shown, and
     are decided in the terminal (`orchestrator sdlc runs`).
   - The extension tells its Spine server where runs are kept (`TMPDIR`, `SPINE_RUN_STATE`,

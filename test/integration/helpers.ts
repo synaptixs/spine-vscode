@@ -14,6 +14,9 @@ export interface SpineApiForTests {
   runs: {
     runs(): Promise<{ runId: string; status: string; actions: string[]; text: { label: string; description: string } }[]>;
     message(): string | undefined;
+    review(runId: string): Promise<{ files: { path: string; status: string; left: string; right: string }[]; patch: string }>;
+    approveReview(runId: string, note: string): Promise<boolean>;
+    fetch(runId: string): Promise<boolean>;
   };
 }
 

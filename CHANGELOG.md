@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Diff review (SSPN-245): a build waiting for a review offers **Review diff**, which opens every
+  changed file of the build's worktree read-only in one diff editor, plus **Open patch** for the
+  exact diff Spine asks about. **Approve diff…** and **Reject diff…** decide it under the git name,
+  bound to the diff that was read; a diff that changed since is refused and reopened. A rejection
+  needs a note and ends the build. A finished build offers **Fetch into my checkout…**, which
+  creates its branch locally and never overwrites one. While a build started from the editor runs,
+  it is checked every 30 s even with the Runs view closed, and a waiting review is announced once.
 - Spine pinned to 3.67.1. Dropping a budget or "build anyway?" stop whose process has gone now
   ends the build (`abandoned`), so its plan can be built again; before, the plan stayed blocked.
   Builds started with `orchestrator sdlc autorun` in a terminal are now shown read-only in the

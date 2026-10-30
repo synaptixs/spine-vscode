@@ -6,7 +6,12 @@
  *
  * - A build is always safe and detached: Spine commits on a branch in its own worktree, never in
  *   the checkout, and pushes nothing (D67, D84).
- * - A review park is shown, never decided here: that belongs to the diff review (D89, SSPN-245).
+ * - A review park is decided on the diff that was read (SSPN-245, D96–D98): `readReview` reads the
+ *   bound patch and its digest, and Approve/Reject send that digest back, so a diff that moved is
+ *   refused (and Spine itself asks again if the worktree moves after a yes). Only while its process
+ *   waits: a dead review park can only be dropped, since a resume builds a fresh diff (D82).
+ * - A finished build's branch can be fetched into the checkout as a new local branch, never
+ *   forced, never checked out (D99); pushing it is the person's own step (D67).
  * - Budget and "build anyway?" parks are decided with a note under the git name, the name Spine
  *   itself would record locally (D74, as P2's D43). A budget park resumes only after the person
  *   raised the cap in the checkout's `.env`; the extension never reads or writes `.env` (D91).
@@ -15,8 +20,10 @@
  *   Spine's own refusal is shown.
  * - Builds run on this machine only (D21); Restricted Mode calls nothing (D12).
  */
+import { execFile } from "node:child_process";
 import type { SpineCalls } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
+import { fetchArgs } from "./diffs";
 
 /** A row of `sdlc_builds`. */
 export interface RunRow {
@@ -58,7 +65,24 @@ export interface Stage {
   at: number;
 }
 
-export type RunAction = "cancel" | "resume" | "approve" | "drop" | "raiseCapAndResume" | "openWorktree" | "openPlan";
+export type RunAction = "review" | "cancel" | "resume" | "approve" | "drop" | "raiseCapAndResume" | "fetch" | "openWorktree" | "openPlan";
+
+/** git in a folder: `ok` is a zero exit; `out` is stdout, or stderr when it failed. */
+export type GitRun = (cwd: string, args: string[]) => Promise<{ ok: boolean; out: string }>;
+
+export const nodeGit: GitRun = (cwd, args) =>
+  new Promise((resolve) => {
+    execFile("git", args, { cwd, timeout: 60_000 }, (err, stdout, stderr) => resolve(err ? { ok: false, out: String(stderr || err.message).trim() } : { ok: true, out: stdout }));
+  });
+
+/** A review park as read for a decision: the run as Spine has it now, and the patch bound to it. */
+export interface Review {
+  view: RunView;
+  /** The saved diff, at most 200 KB of it (Spine's `MAX_DIFF_BYTES`). */
+  patch: string;
+  bytes: number;
+  truncated: boolean;
+}
 
 export interface BuildPrompts {
   confirm(message: string, action: string): Promise<boolean>;
@@ -73,6 +97,7 @@ export interface BuildRunsOptions {
   repo: () => string | undefined;
   isTrusted: () => boolean;
   deciderName: () => Promise<string>;
+  git?: GitRun;
 }
 
 const REVIEW = "review";
@@ -87,12 +112,14 @@ export function actionsFor(view: RunView): RunAction[] {
   const { row, waiting } = view;
   const out: RunAction[] = [];
   if (!readOnly(row)) {
-    if (row.alive) out.push("cancel");
+    if (row.alive && waiting?.kind === REVIEW) out.push("review", "cancel");
+    else if (row.alive) out.push("cancel");
     else if (waiting?.kind === BUDGET) out.push("raiseCapAndResume", "drop");
     // Its process is gone, so approving would build again from scratch: only dropping it is offered.
     else if (waiting?.kind === REVIEW) out.push("drop");
     else if (waiting && waiting.kind !== OWN_TESTS) out.push("approve", "drop");
     else if (!waiting && ["running", "parked", "failed"].includes(row.status)) out.push("resume");
+    if (row.status === "done" && row.branch && row.worktree) out.push("fetch");
   }
   if (row.worktree) out.push("openWorktree");
   if (row.intent_id) out.push("openPlan");
@@ -131,6 +158,31 @@ export function runText(view: RunView): { label: string; description: string; to
 /** D92: poll only while someone can see the runs and one of them is still alive. */
 export function shouldPoll(views: RunView[], visible: boolean): boolean {
   return visible && views.some((v) => v.row.alive);
+}
+
+/** D101: with the view hidden, watch only while a build this editor started is alive. */
+export function shouldWatch(views: RunView[], visible: boolean): boolean {
+  return !visible && views.some((v) => v.row.alive && !readOnly(v.row));
+}
+
+/** D101: the reviews to tell the person about, each approval once. */
+export function reviewsToAnnounce(views: RunView[], announced: ReadonlySet<string>): RunView[] {
+  return views.filter((v) => !readOnly(v.row) && v.row.alive && v.waiting?.kind === REVIEW && !announced.has(v.waiting.approval_id));
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/** The confirm before a review is approved: what it covers and where it lands (D97, D84). */
+export function reviewMessage(review: Review, files: number, name: string): string {
+  const { row, waiting } = review.view;
+  const kb = Math.round(review.bytes / 1024);
+  const lines = [
+    `Approve the diff of ${row.intent_id || row.run_id} as ${name}? ${plural(files, "file")}, ${kb} KB, digest ${(waiting?.digest ?? "").slice(0, 12)}.`,
+    `On yes the change is committed on ${row.branch || "its branch"} in Spine's own worktree. Nothing is pushed, and your checkout is not touched.`,
+  ];
+  if (review.truncated) lines.push(`The patch view is cut at 200 KB of ${kb} KB: your yes covers the whole diff, every file as the diff editor shows it.`);
+  lines.push("If the worktree changed since it was read, Spine asks again.");
+  return lines.join("\n\n");
 }
 
 /** The confirm before a build starts (D72, D88). */
@@ -233,6 +285,73 @@ export class BuildRuns {
     } catch (err) {
       throw new Error(`the budget park is approved as ${name}, but the run did not resume: ${(err as Error).message}`);
     }
+    return true;
+  }
+
+  /** Read a live review park: the run as Spine has it now, its bound patch and digest. */
+  async readReview(view: RunView): Promise<Review> {
+    const { row, waiting } = view;
+    const what = row.intent_id || row.run_id;
+    if (readOnly(row)) throw new Error(`${row.run_id} was started from a terminal: review it there (sdlc runs show ${row.run_id})`);
+    if (waiting?.kind !== REVIEW) throw new Error(`${what} is not waiting on a review`);
+    if (!row.alive) throw new Error(`${what}'s process is gone, so a yes would build it again from scratch: drop it and start a new build`);
+    const { calls, repo } = this.guard();
+    const out = await calls.call("sdlc_builds", { repo_path: repo, run_id: row.run_id });
+    const now = (out.waiting_on as Waiting | null | undefined) ?? null;
+    if (now?.kind !== REVIEW) throw new Error(`${what} is no longer waiting on a review: refresh the Runs view`);
+    return {
+      view: { row: (out.run as RunRow | undefined) ?? row, waiting: now },
+      patch: String(out.diff ?? ""),
+      bytes: Number(out.diff_bytes ?? 0),
+      truncated: out.diff_truncated === true,
+    };
+  }
+
+  /** Approve the diff that was read; a diff that moved since is refused (`PlanMovedError`). */
+  async approveReview(review: Review, files: number, prompts: BuildPrompts): Promise<boolean> {
+    const { row, waiting } = review.view;
+    if (waiting?.kind !== REVIEW) throw new Error(`${row.run_id} is not waiting on a review`);
+    const name = await this.name(prompts);
+    if (!name) return false;
+    if (!(await prompts.confirm(reviewMessage(review, files, name), "Approve"))) return false;
+    const note = await prompts.note(`Approve the diff of ${row.intent_id || row.run_id}, as ${name}`, false);
+    if (note === undefined) return false;
+    await this.decide(review.view, waiting, true, note.trim(), name);
+    prompts.info(`Approved as ${name}. The build carries on by itself and commits on ${row.branch || "its branch"}; fixes from its review loop come back for review.`);
+    return true;
+  }
+
+  /** Reject the diff that was read: the run ends, its branch and worktree stay (D98). A note is required. */
+  async rejectReview(review: Review, prompts: BuildPrompts): Promise<boolean> {
+    const { row, waiting } = review.view;
+    if (waiting?.kind !== REVIEW) throw new Error(`${row.run_id} is not waiting on a review`);
+    const name = await this.name(prompts);
+    if (!name) return false;
+    const note = (await prompts.note(`Reject the diff of ${row.intent_id || row.run_id}, as ${name}: what is wrong?`, true))?.trim();
+    if (!note) return false;
+    await this.decide(review.view, waiting, false, note, name);
+    prompts.info(`Rejected as ${name}: the run ends; its branch and worktree stay. Start a new build when the plan is ready.`);
+    return true;
+  }
+
+  /** D99: a finished build's branch into the checkout as a new local branch; the person pushes it. */
+  async fetch(view: RunView, prompts: BuildPrompts): Promise<boolean> {
+    const { row } = view;
+    if (readOnly(row)) throw new Error(`${row.run_id} was started from a terminal: fetch its branch there`);
+    if (row.status !== "done" || !row.branch || !row.worktree) throw new Error(`${row.intent_id || row.run_id} is not a finished build with a branch to fetch`);
+    const { repo } = this.guard();
+    const git = this.options.git ?? nodeGit;
+    if ((await git(repo, ["rev-parse", "--verify", "--quiet", `refs/heads/${row.branch}`])).ok) {
+      throw new Error(`your checkout already has a branch ${row.branch}: rename or delete it first`);
+    }
+    const ok = await prompts.confirm(
+      `Fetch ${row.branch} from Spine's worktree into ${repo}? It creates the local branch only: your current branch, working tree and index are not touched, and nothing is pushed.`,
+      "Fetch",
+    );
+    if (!ok) return false;
+    const fetched = await git(repo, fetchArgs(row.worktree, row.branch));
+    if (!fetched.ok) throw new Error(`git fetch failed: ${fetched.out}`);
+    prompts.info(`Fetched ${row.branch}. Push it yourself when it is ready: git push -u origin ${row.branch}`);
     return true;
   }
 
