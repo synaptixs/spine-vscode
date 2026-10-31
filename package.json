@@ -2,7 +2,7 @@
   "name": "spine-vscode",
   "displayName": "Spine",
   "description": "Spine's Product Knowledge Graph in the editor: callers, blast radius, untested code and docs above your code, over MCP.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "synaptixs",
   "private": true,
   "license": "MIT",

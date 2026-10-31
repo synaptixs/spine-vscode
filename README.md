@@ -7,21 +7,21 @@ holds no API key. The lenses, hovers and plan review spend nothing. A build, and
 requirement's spec, use the model key in the checkout's own `.env`, and the extension asks before
 either one.
 
-**Status:** private preview (0.2.0), not on the Marketplace or Open VSX. Runs in VS Code and in
+**Status:** private preview (0.3.0), not on the Marketplace or Open VSX. Runs in VS Code and in
 Cursor (see [In Cursor](#in-cursor)); other VS Code forks are untested.
 
 ## Install
 
-You get a `.vsix` file (for example `spine-vscode-0.2.0.vsix`, attached to the repository's
+You get a `.vsix` file (for example `spine-vscode-0.3.0.vsix`, attached to the repository's
 GitHub release). Install it in VS Code with **Extensions → ⋯ → Install from VSIX…**, or from a
 terminal:
 
 ```
-code --install-extension spine-vscode-0.2.0.vsix
+code --install-extension spine-vscode-0.3.0.vsix
 ```
 
 In Cursor it is the same file: **Extensions → ⋯ → Install from VSIX…**, or
-`cursor --install-extension spine-vscode-0.2.0.vsix`.
+`cursor --install-extension spine-vscode-0.3.0.vsix`.
 
 Then make sure [`uv`](https://docs.astral.sh/uv/) is installed (see Requirements) and open a
 folder you trust. The first start downloads Spine through `uv`, which takes a few seconds; after
