@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-10-31
+
+Runs in Cursor as well as VS Code, on the same Spine 3.68.0.
+
 - Cursor (SSPN-284): the `.vsix` installs and runs in Cursor 3.27, which is VS Code 1.128
   underneath. `engines.vscode` is now `^1.128.0`, and CI runs every suite on VS Code 1.128.0 as
   well as 1.142.0. Lenses, hovers, plan review, builds, diff review and planning from a requirement
