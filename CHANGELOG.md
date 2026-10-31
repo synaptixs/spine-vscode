@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-10-31
+
+Builds, diff review and planning from a requirement, all in the editor, on Spine 3.68.0.
+
 - Plan from requirement (SSPN-246): **Spine: Plan from requirement…** in the Command Palette picks
   a Markdown file in the folder or takes a pasted ticket or URL, and **Spine: Plan this
   requirement** sits on a Markdown file's Explorer and editor context menus. Spine derives the
@@ -40,6 +44,14 @@
   `SHELL`, `TERM` and `USER`, so Spine kept the extension's runs under `/tmp`, apart from
   `orchestrator sdlc runs` in a terminal.
 - Builds use Spine's build tools `sdlc_build`, `sdlc_builds` and `sdlc_build_decide` (new in 3.67.0).
+- The installed `.vsix` is now checked for every command it contributes, its Runs view, and a
+  requirement planned from the installed copy; in CI it is the package the check job built, installed
+  on another runner (SSPN-247).
+- Dev tooling only: `npm audit` reports 13 moderate advisories in `glob` and `minimatch` under
+  `eslint`, `mocha` and `@vscode/vsce`, none of which ships in the `.vsix` (`npm audit --omit=dev`
+  is clean). npm's only fixes are downgrades; they are taken when upstream releases one.
+
+## 0.1.0 — 2026-10-30
 
 - Packaged as a private `.vsix`, version 0.1.0 (SSPN-275): `npm run package` builds it with the
   repository's pinned `vsce`, and the README's Install section says how to add it to VS Code. A

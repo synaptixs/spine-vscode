@@ -34,16 +34,20 @@ export interface RequirementFixture {
   dispose(): void;
 }
 
+/** Writes `docs/<id>.md` in `root`, a requirement holding `CRITERION`, and returns its path. */
+export function writeRequirement(root: string, id: string = REQUIREMENT_ID): string {
+  const file = path.join(root, "docs", `${id}.md`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `# ${id}\n\nThe checkout page shows the cart total with tax.\n\n## Acceptance criteria\n- ${CRITERION}\n`);
+  return file;
+}
+
 /** A copy of the fixture as its own committed git repository, with one Markdown requirement per id. */
 export function requirementFixture(ids: string[] = [REQUIREMENT_ID]): RequirementFixture {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-reqs-")));
   fs.cpSync(FIXTURE, root, { recursive: true });
-  fs.mkdirSync(path.join(root, "docs"));
   const files: Record<string, string> = {};
-  for (const id of ids) {
-    files[id] = path.join(root, "docs", `${id}.md`);
-    fs.writeFileSync(files[id], `# ${id}\n\nThe checkout page shows the cart total with tax.\n\n## Acceptance criteria\n- ${CRITERION}\n`);
-  }
+  for (const id of ids) files[id] = writeRequirement(root, id);
   const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" });
   git("init", "-q");
   git("config", "user.name", GIT_NAME);

@@ -1,18 +1,23 @@
 # Spine for VS Code
 
 Spine's Product Knowledge Graph in the editor: who calls a function, what a change reaches, which
-of it no test covers, and the docs that mention it. The extension talks to Spine over MCP only; it
-spends nothing and needs no API key.
+of it no test covers, and the docs that mention it. Then review a plan, build it, read the build's
+diff and approve it, without leaving the editor. The extension talks to Spine over MCP only and
+holds no API key. The lenses, hovers and plan review spend nothing. A build, and deriving a
+requirement's spec, use the model key in the checkout's own `.env`, and the extension asks before
+either one.
 
-**Status:** private preview, not on the Marketplace.
+**Status:** private preview (0.2.0), not on the Marketplace. VS Code only for now: VS Code forks
+such as Cursor are not supported yet.
 
 ## Install
 
-You get a `.vsix` file (for example `spine-vscode-0.1.0.vsix`). Install it in VS Code with
-**Extensions → ⋯ → Install from VSIX…**, or from a terminal:
+You get a `.vsix` file (for example `spine-vscode-0.2.0.vsix`, attached to the repository's
+GitHub release). Install it in VS Code with **Extensions → ⋯ → Install from VSIX…**, or from a
+terminal:
 
 ```
-code --install-extension spine-vscode-0.1.0.vsix
+code --install-extension spine-vscode-0.2.0.vsix
 ```
 
 Then make sure [`uv`](https://docs.astral.sh/uv/) is installed (see Requirements) and open a

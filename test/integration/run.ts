@@ -17,7 +17,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from "@vscode/test-electron";
 import { scanEnv, scanTree } from "../support/noToken";
 import { planFixture } from "../support/planFixture";
-import { intakeCache, REQUIREMENT_ID, requirementFixture, seedIntake } from "../support/seedIntake";
+import { intakeCache, REQUIREMENT_ID, requirementFixture, seedIntake, writeRequirement } from "../support/seedIntake";
 import { gitWorktree, runStore, seed } from "../support/seedRuns";
 import { buildVsix, packageVersion } from "../support/vsix";
 
@@ -184,7 +184,8 @@ async function company(role: string | undefined) {
 
 /**
  * SSPN-275: package the extension, install the .vsix into a fresh profile with VS Code's own CLI,
- * and run the suite against that installed copy. By name, and in CI's integration job.
+ * and run the suite against that installed copy. By name, and in CI's integration job, where
+ * `SPINE_VSIX` is the package the check job built on another runner (SSPN-247, D113).
  */
 async function installed() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-installed-"));
@@ -204,12 +205,23 @@ async function installed() {
     JSON.stringify({ name: "spine-test-runner", publisher: "spine-test", version: "0.0.0", engines: { vscode: "*" } }),
   );
   const plans = await planFixture();
+  // SSPN-247: a requirement whose spec is cached, so the installed copy plans it for $0 (SSPN-246).
+  const cache = intakeCache();
+  const requirement = writeRequirement(plans.root);
+  seedIntake(cache, `file://${requirement}`);
   try {
     await launch(
       "installed",
       process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {},
       false,
-      { SPINE_PLAN_ID: plans.intentId, SPINE_EXTENSIONS_DIR: extensions, SPINE_VSIX_VERSION: packageVersion() },
+      {
+        ...cache.env,
+        SPINE_PLAN_ID: plans.intentId,
+        SPINE_EXTENSIONS_DIR: extensions,
+        SPINE_VSIX_VERSION: packageVersion(),
+        SPINE_REQUIREMENT_ID: REQUIREMENT_ID,
+        SPINE_REQUIREMENT_FILE: requirement,
+      },
       {},
       plans.root,
       dir,
@@ -217,6 +229,7 @@ async function installed() {
       stub,
     );
   } finally {
+    cache.dispose();
     plans.dispose();
   }
 }
