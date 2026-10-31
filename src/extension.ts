@@ -11,15 +11,24 @@
  * the sign-in (D19, D32). Lenses stay local either way (D34). While a remote server is named, the
  * extension offers VS Code no local definition: VS Code names both servers' tools alike, and a
  * plan must never be approved on the wrong one (D49).
+ *
+ * Builds (src/runs.ts, src/builds.ts) run on the local server only, at `spine.level=build` (D21).
+ * Plan from requirement (src/plan-from-requirement.ts, src/requirements.ts) runs on the local server
+ * only too (D109): deriving a spec spends the checkout's own key.
  */
 import * as vscode from "vscode";
+import { BuildRuns, nodeGit } from "./builds";
 import { type LmTools, localCalls, remoteCalls, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
 import { exposesTestHooks } from "./hooks";
 import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
+import { SpineRequirements } from "./plan-from-requirement";
 import { SpinePlans } from "./plans";
+import { RequirementPlanner, requirementBlocker } from "./requirements";
 import { gitUserName, PlanReview } from "./review";
+import { ReviewDiffs } from "./review-diff";
+import { SpineRuns } from "./runs";
 
 export interface SpineApi {
   readonly trusted: boolean;
@@ -27,6 +36,7 @@ export interface SpineApi {
   mcpDefinitions(): vscode.McpServerDefinition[];
   /** Only when loaded from source, for the integration suites (src/hooks.ts). */
   plans?: ReturnType<SpinePlans["api"]>;
+  runs?: ReturnType<SpineRuns["api"]>;
 }
 
 const TRUST_NOTICE = "Spine is off in Restricted Mode: it starts no process here. Trust this folder to use it.";
@@ -35,6 +45,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
   const settings = () => vscode.workspace.getConfiguration("spine");
   const launch = () => spineLaunch(settings().get<string>("serverPath"), settings().get<string>("level"));
   const server = () => settings().get<string>("server")?.trim() || "local";
+  const level = () => settings().get<string>("level")?.trim() || "plan";
   const folder = () => vscode.workspace.workspaceFolders?.[0]?.uri;
   const newClient = () =>
     new SpineClient({ launch: launch(), isTrusted: () => vscode.workspace.isTrusted, cwd: folder()?.fsPath });
@@ -70,7 +81,42 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
       return root ? gitUserName(root.fsPath) : "";
     },
   });
-  const plans = new SpinePlans(() => review, showTrustNotice);
+  // Builds run on this machine, with the person's own keys, at level `build` only (D21, SSPN-244).
+  const buildBlocker = (): string | undefined => {
+    if (!vscode.workspace.isTrusted) return "trust this folder first (Restricted Mode)";
+    if (server() !== "local") return `builds run on this machine only, and spine.server names ${server()}`;
+    if (level() !== "build") return `set spine.level to build (it is ${level()}): builds spend model tokens with your own keys`;
+    return undefined;
+  };
+  const builds = new BuildRuns({
+    calls: () => localCalls(() => client),
+    repo: () => folder()?.fsPath,
+    isTrusted: () => vscode.workspace.isTrusted,
+    deciderName: async () => {
+      const root = folder();
+      return root ? gitUserName(root.fsPath) : "";
+    },
+  });
+  const diffs = new ReviewDiffs(nodeGit);
+  const runs = new SpineRuns({
+    builds: () => builds,
+    unavailable: buildBlocker,
+    folder: () => folder()?.fsPath,
+    onRestricted: showTrustNotice,
+    diffs,
+    state: context.workspaceState,
+  });
+  const plans = new SpinePlans(() => review, showTrustNotice, buildBlocker, (id) => runs.build(id));
+  const planner = new RequirementPlanner({
+    calls: () => localCalls(() => client),
+    repo: () => folder()?.fsPath,
+    isTrusted: () => vscode.workspace.isTrusted,
+    blocker: () => requirementBlocker(server(), level()),
+    open: async (id) => {
+      await vscode.commands.executeCommand("spine.openPlan", id);
+    },
+  });
+  const requirements = new SpineRequirements(() => planner, showTrustNotice);
   let refresh: NodeJS.Timeout | undefined;
   const changedOnDisk = () => {
     clearTimeout(refresh);
@@ -88,10 +134,12 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
       definitionsChanged.fire();
       lenses.invalidate();
+      runs.invalidate();
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (["spine.serverPath", "spine.level", "spine.server", "spine.serverRepo"].some((s) => event.affectsConfiguration(s))) {
         plans.invalidate();
+        runs.invalidate();
       }
       if (!["spine.serverPath", "spine.level", "spine.server"].some((s) => event.affectsConfiguration(s))) return;
       void client.close();
@@ -101,6 +149,9 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     }),
     lenses,
     plans,
+    requirements,
+    runs,
+    diffs,
     watcher,
     watcher.onDidChange(changedOnDisk),
     watcher.onDidCreate(changedOnDisk),
@@ -143,6 +194,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     doctor,
     mcpDefinitions,
     plans: exposesTestHooks(context.extensionMode, vscode.ExtensionMode.Production) ? plans.api() : undefined,
+    runs: exposesTestHooks(context.extensionMode, vscode.ExtensionMode.Production) ? runs.api() : undefined,
   };
 }
 

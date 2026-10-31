@@ -1,11 +1,15 @@
-# Lint, type-check and unit tests; the contract test against the real pinned Spine (D10); the
-# extension-host suites in a real VS Code under xvfb (trust guard, sentinel control, real server).
+# Lint, type-check, unit tests and the package check (the real .vsix, SSPN-275); the contract test
+# against the real pinned Spine (D10); the extension-host suites in a real VS Code under xvfb (trust
+# guard, sentinel control, real server), then the packaged .vsix installed into a fresh profile.
+# The .vsix is built once, in the check job, and the integration job installs that file on its own
+# runner, so the copy under test was built on a machine other than the one that installs it (SSPN-247,
+# D113). A push to main leaves the release's .vsix as this run's artifact.
 name: ci
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -23,6 +27,14 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit
+      - run: npm run test:package
+      - run: npm run package
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vsix
+          path: spine-vscode-*.vsix
+          if-no-files-found: error
+          retention-days: 30
 
   contract:
     runs-on: ubuntu-latest
@@ -39,6 +51,7 @@ jobs:
       - run: npm run test:contract
 
   integration:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -51,3 +64,11 @@ jobs:
           version: "0.8.0"
       - run: npm ci
       - run: xvfb-run -a npm run test:integration
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: vsix
+          path: ${{ runner.temp }}/vsix
+      - run: |
+          vsix="$(ls "$RUNNER_TEMP"/vsix/spine-vscode-*.vsix)"
+          test "$(basename "$vsix")" = "spine-vscode-$(node -p 'require("./package.json").version').vsix"
+          SPINE_VSIX="$vsix" xvfb-run -a node out/test/integration/run.js installed

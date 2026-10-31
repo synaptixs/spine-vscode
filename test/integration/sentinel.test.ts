@@ -29,7 +29,14 @@ describe("in a trusted folder, with a sentinel server", () => {
 
   it("serves VS Code's chat at the spine.level setting, `plan` by default (D41)", async () => {
     const defs = (await spineApi()).mcpDefinitions();
-    assert.deepEqual((defs[0] as vscode.McpStdioServerDefinition).env, { ORCHESTRATOR_MCP_LEVEL: "plan" });
+    assert.equal((defs[0] as vscode.McpStdioServerDefinition).env.ORCHESTRATOR_MCP_LEVEL, "plan");
+  });
+
+  it("tells chat's server where runs are kept, and passes nothing else (D88)", async () => {
+    const env = ((await spineApi()).mcpDefinitions()[0] as vscode.McpStdioServerDefinition).env;
+    const allowed = ["ORCHESTRATOR_MCP_LEVEL", "TMPDIR", "SPINE_RUN_STATE", "SPINE_RUN_ARTIFACTS"];
+    assert.deepEqual(Object.keys(env).filter((k) => !allowed.includes(k)), []);
+    assert.equal(env.TMPDIR, process.env.TMPDIR);
   });
 
   it("offers no local server while spine.server names a remote one (D49)", async () => {

@@ -1,10 +1,30 @@
 # Spine for VS Code
 
 Spine's Product Knowledge Graph in the editor: who calls a function, what a change reaches, which
-of it no test covers, and the docs that mention it. The extension talks to Spine over MCP only; it
-spends nothing and needs no API key.
+of it no test covers, and the docs that mention it. Then review a plan, build it, read the build's
+diff and approve it, without leaving the editor. The extension talks to Spine over MCP only and
+holds no API key. The lenses, hovers and plan review spend nothing. A build, and deriving a
+requirement's spec, use the model key in the checkout's own `.env`, and the extension asks before
+either one.
 
-**Status:** private preview, not on the Marketplace.
+**Status:** private preview (0.2.0), not on the Marketplace. VS Code only for now: VS Code forks
+such as Cursor are not supported yet.
+
+## Install
+
+You get a `.vsix` file (for example `spine-vscode-0.2.0.vsix`, attached to the repository's
+GitHub release). Install it in VS Code with **Extensions → ⋯ → Install from VSIX…**, or from a
+terminal:
+
+```
+code --install-extension spine-vscode-0.2.0.vsix
+```
+
+Then make sure [`uv`](https://docs.astral.sh/uv/) is installed (see Requirements) and open a
+folder you trust. The first start downloads Spine through `uv`, which takes a few seconds; after
+that it starts in about a second.
+
+To build the `.vsix` yourself from this repository: `npm ci && npm run compile && npm run package`.
 
 ## What you see
 
@@ -25,6 +45,44 @@ spends nothing and needs no API key.
   A decision covers exactly the text you were shown: if the plan changed since you opened it,
   nothing is recorded and the plan reopens. Locally you approve under `git config user.name`, and
   the extension shows that name before the call.
+- **Plan from requirement** (on this machine only). **Spine: Plan from requirement…** in the
+  Command Palette picks a Markdown file in the folder, or takes a pasted ticket or URL
+  (`jira://…`, `confluence://…`, `notion://…`, `file://…`); **Spine: Plan this requirement** is on a
+  Markdown file's Explorer and editor context menus. Spine turns it into a plan as
+  `orchestrator sdlc plan --source` does, and the plan opens in the review above. Deriving the
+  requirement's spec runs Spine's intake model on the key in the checkout's `.env`, so the
+  extension asks first and shows what it spent after. A spec derived once (here or in a terminal)
+  is reused for $0 with no question until the file changes; to derive it again, run
+  `orchestrator sdlc plan --source … --refresh` in a terminal. A requirement holding several
+  intents asks which one to plan.
+- **Build** (at `spine.level` = `build`, on this machine only). An approved plan's title bar has a
+  **Build** button; the status line's tooltip says why it is greyed out when it is. A build runs in
+  the background from the last commit of your current branch (uncommitted changes are not included),
+  in Spine's own worktree: the change is committed on a local branch there, never in your checkout,
+  and nothing is pushed. It spends model tokens with your own key, which Spine reads from the
+  checkout's `.env`, as is the per-run cap `SDLC_RUN_BUDGET_USD` ($25 when unset). The extension
+  never reads or writes `.env`.
+- **Runs**, in the Spine sidebar: this checkout's builds, newest first, with their state, stage and
+  spend, and their stages underneath; runs of other repositories are counted, not shown. It refreshes
+  every 5 s while it is visible and a build is running, and otherwise when you open it.
+  - **Cancel** ends a build; its branch and worktree stay. **Open worktree** opens it in a new window.
+  - A build that stopped at its budget offers **Raise cap and resume…**: raise
+    `SDLC_RUN_BUDGET_USD` in `.env` first, then it is approved under your git name and resumed.
+    A "build anyway?" stop offers **Approve…** (then **Resume…**) and **Drop…**, which needs a note.
+  - A build waiting for a review of its diff offers **Review diff**: every changed file of the
+    build's worktree opens read-only in one diff editor, and **Open patch** shows the exact diff
+    Spine asks about. **Approve diff…** or **Reject diff…** then decides it under your git name, on
+    the diff you read: if the build changed it since, the decision is not recorded and the new diff
+    opens. A rejection needs a note; the build ends and its branch and worktree stay. While a build
+    you started is running, the extension checks it every 30 s even with the view closed, and tells
+    you once when it is waiting for your review.
+  - A finished build offers **Fetch into my checkout…**: its branch is fetched into your folder as a
+    new local branch. Your current branch and files are not touched, an existing branch of that name
+    is never overwritten, and nothing is pushed: push it yourself.
+  - A build whose process has gone offers **Resume…**. Runs started from a terminal are shown, and
+    are decided in the terminal (`orchestrator sdlc runs`).
+  - The extension tells its Spine server where runs are kept (`TMPDIR`, `SPINE_RUN_STATE`,
+    `SPINE_RUN_ARTIFACTS`), so the panel and `orchestrator sdlc runs` in a terminal see the same runs.
 
 ## Settings
 
@@ -43,7 +101,7 @@ In Restricted Mode a workspace's own value for any of these is ignored.
 - [`uv`](https://docs.astral.sh/uv/). The extension starts Spine with one pinned line, so Spine itself does not need to be installed:
 
   ```
-  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.66.0' orchestrator-mcp
+  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.68.0' orchestrator-mcp
   ```
 
   `--python '>=3.12'` lets uv fetch a suitable Python where the system one is older (Debian 12, Ubuntu 22.04).
@@ -60,6 +118,10 @@ trusted, so a checkout cannot choose the program the extension runs.
 Add the server to VS Code's own MCP configuration (`MCP: Open User Configuration`). VS Code runs the
 sign-in and keeps the session; the extension holds no token. A self-hosted server with a shared
 token takes it as a header there, preferably through an `inputs` password prompt.
+
+Plan from requirement and builds stay on this machine: they spend model tokens with the
+checkout's own key, and with `spine.server` naming a remote server the command says to set it to
+`local`.
 
 To review plans there, set `spine.server` to that server's name and `spine.serverRepo` to the
 repository's path on the server (a shared server reads only the checkouts its admin listed). The

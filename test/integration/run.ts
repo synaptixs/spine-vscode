@@ -13,10 +13,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
-import { downloadAndUnzipVSCode } from "@vscode/test-electron";
+import { execFileSync, spawn } from "node:child_process";
+import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from "@vscode/test-electron";
 import { scanEnv, scanTree } from "../support/noToken";
 import { planFixture } from "../support/planFixture";
+import { intakeCache, REQUIREMENT_ID, requirementFixture, seedIntake, writeRequirement } from "../support/seedIntake";
+import { gitWorktree, runStore, seed } from "../support/seedRuns";
+import { buildVsix, packageVersion } from "../support/vsix";
 
 export const VSCODE_VERSION = "1.142.0";
 
@@ -38,6 +41,9 @@ async function launch(
   folder: string = fixture,
   dir: string = fs.mkdtempSync(path.join(os.tmpdir(), `spine-vsx-${suite}-`)),
   driver?: string,
+  // The installed .vsix is under test (SSPN-275): this empty extension only carries the test
+  // runner, and neither this repository nor `--disable-extensions` is passed.
+  installedStub?: string,
 ) {
   const userData = path.join(dir, "user-data");
   fs.mkdirSync(path.join(userData, "User"), { recursive: true });
@@ -54,10 +60,10 @@ async function launch(
     "--skip-welcome",
     "--skip-release-notes",
     "--no-cached-data",
-    "--disable-extensions",
+    ...(installedStub ? [] : ["--disable-extensions"]),
     `--user-data-dir=${userData}`,
     `--extensions-dir=${path.join(dir, "extensions")}`,
-    `--extensionDevelopmentPath=${root}`,
+    `--extensionDevelopmentPath=${installedStub ?? root}`,
     // A driver runs the suite inside a normal window (companyDriver.ts); otherwise VS Code's test runner does.
     ...(driver ? [`--extensionDevelopmentPath=${driver}`] : [`--extensionTestsPath=${path.join(__dirname, "index.js")}`]),
     ...(trust ? [] : ["--disable-workspace-trust"]),
@@ -176,6 +182,58 @@ async function company(role: string | undefined) {
   }
 }
 
+/**
+ * SSPN-275: package the extension, install the .vsix into a fresh profile with VS Code's own CLI,
+ * and run the suite against that installed copy. By name, and in CI's integration job, where
+ * `SPINE_VSIX` is the package the check job built on another runner (SSPN-247, D113).
+ */
+async function installed() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-installed-"));
+  const vsix = process.env.SPINE_VSIX ?? buildVsix(path.join(dir, "dist"));
+  const extensions = path.join(dir, "extensions");
+  const userData = path.join(dir, "user-data");
+  const exe = process.env.VSCODE_PATH ?? (await downloadAndUnzipVSCode(VSCODE_VERSION));
+  const [cli, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(exe);
+  execFileSync(cli, [...cliArgs, `--extensions-dir=${extensions}`, `--user-data-dir=${userData}`, "--install-extension", vsix], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  const stub = path.join(dir, "stub");
+  fs.mkdirSync(stub);
+  fs.writeFileSync(
+    path.join(stub, "package.json"),
+    JSON.stringify({ name: "spine-test-runner", publisher: "spine-test", version: "0.0.0", engines: { vscode: "*" } }),
+  );
+  const plans = await planFixture();
+  // SSPN-247: a requirement whose spec is cached, so the installed copy plans it for $0 (SSPN-246).
+  const cache = intakeCache();
+  const requirement = writeRequirement(plans.root);
+  seedIntake(cache, `file://${requirement}`);
+  try {
+    await launch(
+      "installed",
+      process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {},
+      false,
+      {
+        ...cache.env,
+        SPINE_PLAN_ID: plans.intentId,
+        SPINE_EXTENSIONS_DIR: extensions,
+        SPINE_VSIX_VERSION: packageVersion(),
+        SPINE_REQUIREMENT_ID: REQUIREMENT_ID,
+        SPINE_REQUIREMENT_FILE: requirement,
+      },
+      {},
+      plans.root,
+      dir,
+      undefined,
+      stub,
+    );
+  } finally {
+    cache.dispose();
+    plans.dispose();
+  }
+}
+
 async function main() {
   const only = process.argv[2];
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-sentinel-"));
@@ -227,8 +285,65 @@ async function main() {
         }
       },
     ],
+    [
+      "runs",
+      async () => {
+        const plans = await planFixture();
+        const store = runStore();
+        const reviewed = gitWorktree("review", "feat/REVIEW-1/tax");
+        const finished = gitWorktree("done", "feat/DONE-1/tax");
+        try {
+          // Seeded through Spine's own Python, in a store of the suite's own; the extension host
+          // inherits SPINE_RUN_STATE/SPINE_RUN_ARTIFACTS and must hand them to its server (D88).
+          const repo = fs.realpathSync(plans.root);
+          seed(store, { runId: "budget0000000001", intentId: plans.intentId, repo, status: "parked", kind: "budget", spentUsd: 3.5, fromEditor: true });
+          seed(store, { runId: "elsewhere0000001", intentId: "X-1", repo: "/somewhere/else", status: "done" });
+          // SSPN-245: a live review park on a real worktree, and a finished build with a branch to fetch.
+          seed(store, { runId: "review0000000001", intentId: "REVIEW-1", repo, status: "parked", kind: "review", live: true, fromEditor: true, worktree: reviewed.root, commitBranch: "feat/REVIEW-1/tax" });
+          seed(store, { runId: "done000000000001", intentId: "DONE-1", repo, status: "done", fromEditor: true, worktree: finished.root, commitBranch: "feat/DONE-1/tax" });
+          await launch(
+            "runs",
+            { "spine.level": "build", ...(process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {}) },
+            false,
+            { ...store.env, SPINE_PLAN_ID: plans.intentId },
+            {},
+            plans.root,
+          );
+        } finally {
+          store.dispose();
+          reviewed.dispose();
+          finished.dispose();
+          plans.dispose();
+        }
+      },
+    ],
+    [
+      "requirements",
+      async () => {
+        const reqs = requirementFixture([REQUIREMENT_ID, "CART-10"]);
+        const cache = intakeCache();
+        try {
+          const file = reqs.files[REQUIREMENT_ID];
+          seedIntake(cache, `file://${file}`);
+          // Cached too, so a remote server that is not refused would plan it with no dialog (D109).
+          seedIntake(cache, `file://${reqs.files["CART-10"]}`, ["CART-10"]);
+          await launch(
+            "requirements",
+            process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {},
+            false,
+            { ...cache.env, SPINE_REQUIREMENT_ID: REQUIREMENT_ID, SPINE_REQUIREMENT_FILE: file, SPINE_REMOTE_FILE: reqs.files["CART-10"] },
+            {},
+            reqs.root,
+          );
+        } finally {
+          cache.dispose();
+          reqs.dispose();
+        }
+      },
+    ],
   ];
   if (only === "company") return company(process.argv[3]);
+  if (only === "installed") return installed();
   // The D8 probe is evidence-gathering, not a gate: run it by name (`probe`), never by default.
   if (only === "probe") {
     const mcp = process.env.SPINE_PROBE_MCP_JSON ? JSON.parse(fs.readFileSync(process.env.SPINE_PROBE_MCP_JSON, "utf8")) : undefined;

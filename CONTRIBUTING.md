@@ -1,10 +1,16 @@
 # Contributing
 
-- **One branch per change**, cut from `main`; open a PR into `main`. Never commit to `main` directly.
+- **One branch per change**, cut from `origin/develop`; open a PR into `develop`. `main` moves only by a
+  `develop → main` promotion. Never commit to `develop` or `main` directly.
 - **Tests first.** A new behaviour gets a failing test before the code; guard logic (workspace
   trust, the pinned launch line) gets a mutation check: break it on purpose and watch a test fail.
 - **The gate**, all green before a PR: `npm run lint`, `npm run typecheck`, `npm run test:unit`,
-  `npm run test:contract`, `npm run test:integration`. CI runs the same three jobs.
+  `npm run test:package`, `npm run test:contract`, `npm run test:integration`, then
+  `node out/test/integration/run.js installed` (the `.vsix` in a fresh profile). CI runs the same three jobs.
+- **Dependencies:** exact versions, each published at least two weeks before it is added
+  (`npm install --before=<date>`), and `npm audit` at 0. When the two collide, pin the oldest
+  version that is outside the advisory with `overrides`, as `@azure/msal-node` is (only `vsce
+  publish` uses it).
 - **Company sign-in is evidence, not a gate.** `node out/test/integration/run.js company planner|reader`
   needs Keycloak up and a person to sign in: see `test/keycloak/README.md`. Run it when the remote
   path changes, and before a release that touches it.

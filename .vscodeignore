@@ -8,3 +8,7 @@ tsconfig.json
 eslint.config.mjs
 .github/**
 .devcontainer/**
+CLAUDE.md
+CONTRIBUTING.md
+.gitignore
+*.vsix

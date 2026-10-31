@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+## 0.2.0 — 2026-10-31
+
+Builds, diff review and planning from a requirement, all in the editor, on Spine 3.68.0.
+
+- Plan from requirement (SSPN-246): **Spine: Plan from requirement…** in the Command Palette picks
+  a Markdown file in the folder or takes a pasted ticket or URL, and **Spine: Plan this
+  requirement** sits on a Markdown file's Explorer and editor context menus. Spine derives the
+  requirement's spec as `orchestrator sdlc plan --source` does and the plan opens in the plan
+  review. A spec already derived plans for $0 with no question; deriving one asks first (it spends
+  tokens on the checkout's own key) and says what it spent. A requirement with several intents
+  asks which one. On this machine only: with a remote `spine.server` the command says to use
+  `local`.
+- Spine pinned to 3.68.0, whose `sdlc_plan` plans from a `source`.
+- The extension now also passes its Spine server `ORCHESTRATOR_INTAKE_CACHE_DIR`, so a
+  requirement whose spec was derived in a terminal is reused here rather than derived again.
+- A call that waits on Spine's intake model now waits up to 15 minutes; the MCP SDK's own limit
+  is 60 seconds.
+
+- Diff review (SSPN-245): a build waiting for a review offers **Review diff**, which opens every
+  changed file of the build's worktree read-only in one diff editor, plus **Open patch** for the
+  exact diff Spine asks about. **Approve diff…** and **Reject diff…** decide it under the git name,
+  bound to the diff that was read; a diff that changed since is refused and reopened. A rejection
+  needs a note and ends the build. A finished build offers **Fetch into my checkout…**, which
+  creates its branch locally and never overwrites one. While a build started from the editor runs,
+  it is checked every 30 s even with the Runs view closed, and a waiting review is announced once.
+- Spine pinned to 3.67.1. Dropping a budget or "build anyway?" stop whose process has gone now
+  ends the build (`abandoned`), so its plan can be built again; before, the plan stayed blocked.
+  Builds started with `orchestrator sdlc autorun` in a terminal are now shown read-only in the
+  Runs view, since Spine says which builds the editor started (`from_editor`).
+- Builds from the editor (SSPN-244), at `spine.level=build` on the local server: **Build** in an
+  approved plan's title bar starts a safe build in the background from the current branch's last
+  commit, after a dialog saying what is built and where the key and budget come from (the
+  checkout's `.env`). A **Runs** view in a new Spine sidebar lists this checkout's builds with their
+  stages; it polls every 5 s only while visible and a build is alive. Budget and "build anyway?"
+  stops are decided there with a note under the git name (**Raise cap and resume…**, **Approve…**,
+  **Drop…**); **Cancel** keeps the branch and worktree; a build whose process has gone offers
+  **Resume…**. A review of a build's diff is shown as waiting, and decided in a later version.
+- The extension now passes its Spine server `TMPDIR`, `SPINE_RUN_STATE` and `SPINE_RUN_ARTIFACTS`
+  (and nothing else beyond the level): the MCP SDK hands a server only `HOME`, `LOGNAME`, `PATH`,
+  `SHELL`, `TERM` and `USER`, so Spine kept the extension's runs under `/tmp`, apart from
+  `orchestrator sdlc runs` in a terminal.
+- Builds use Spine's build tools `sdlc_build`, `sdlc_builds` and `sdlc_build_decide` (new in 3.67.0).
+- The installed `.vsix` is now checked for every command it contributes, its Runs view, and a
+  requirement planned from the installed copy; in CI it is the package the check job built, installed
+  on another runner (SSPN-247).
+- Dev tooling only: `npm audit` reports 13 moderate advisories in `glob` and `minimatch` under
+  `eslint`, `mocha` and `@vscode/vsce`, none of which ships in the `.vsix` (`npm audit --omit=dev`
+  is clean). npm's only fixes are downgrades; they are taken when upstream releases one.
+
+## 0.1.0 — 2026-10-30
+
+- Packaged as a private `.vsix`, version 0.1.0 (SSPN-275): `npm run package` builds it with the
+  repository's pinned `vsce`, and the README's Install section says how to add it to VS Code. A
+  check (`npm run test:package`) builds the real package and refuses sources, tests, fixtures,
+  source maps, contributor notes or any file over 1 MB. An integration run installs it into a
+  fresh profile and checks the lenses and the plan list there, and that the test hooks are absent.
 - Plan review (SSPN-243): **Spine: Open plan…** lists a folder's build documents and opens one
   read-only beside its Markdown preview; Approve and Reject in its title bar, enabled only when
   Spine says you may decide, with the reason on the status line otherwise; a rejection needs a

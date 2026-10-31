@@ -2,7 +2,7 @@
   "name": "spine-vscode",
   "displayName": "Spine",
   "description": "Spine's Product Knowledge Graph in the editor: callers, blast radius, untested code and docs above your code, over MCP.",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "publisher": "synaptixs",
   "private": true,
   "license": "MIT",
@@ -53,6 +53,14 @@
         "title": "Spine: Open plan…"
       },
       {
+        "command": "spine.planFromRequirement",
+        "title": "Spine: Plan from requirement…"
+      },
+      {
+        "command": "spine.planThisRequirement",
+        "title": "Spine: Plan this requirement"
+      },
+      {
         "command": "spine.approvePlan",
         "title": "Spine: Approve plan",
         "icon": "$(check)",
@@ -63,6 +71,87 @@
         "title": "Spine: Reject plan",
         "icon": "$(close)",
         "enablement": "spine.planCanDecide"
+      },
+      {
+        "command": "spine.buildPlan",
+        "title": "Spine: Build plan",
+        "icon": "$(play)",
+        "enablement": "spine.planCanBuild"
+      },
+      {
+        "command": "spine.runs.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "spine.runs.cancel",
+        "title": "Cancel build…",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "spine.runs.resume",
+        "title": "Resume…",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "spine.runs.approve",
+        "title": "Approve…",
+        "icon": "$(check)"
+      },
+      {
+        "command": "spine.runs.drop",
+        "title": "Drop…",
+        "icon": "$(close)"
+      },
+      {
+        "command": "spine.runs.raiseCapAndResume",
+        "title": "Raise cap and resume…",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "spine.runs.review",
+        "title": "Review diff",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "spine.runs.approveReview",
+        "title": "Approve diff…",
+        "icon": "$(check)"
+      },
+      {
+        "command": "spine.runs.rejectReview",
+        "title": "Reject diff…",
+        "icon": "$(close)"
+      },
+      {
+        "command": "spine.runs.openPatch",
+        "title": "Open patch",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "spine.runs.fetch",
+        "title": "Fetch into my checkout…",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "spine.review.approve",
+        "title": "Spine: Approve diff…",
+        "icon": "$(check)"
+      },
+      {
+        "command": "spine.review.reject",
+        "title": "Spine: Reject diff…",
+        "icon": "$(close)"
+      },
+      {
+        "command": "spine.runs.openWorktree",
+        "title": "Open worktree",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "spine.runs.openPlan",
+        "title": "Open plan",
+        "icon": "$(book)"
       }
     ],
     "configuration": {
@@ -121,6 +210,21 @@
           "command": "spine.rejectPlan",
           "when": "resourceScheme == spine-plan",
           "group": "navigation@2"
+        },
+        {
+          "command": "spine.buildPlan",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@3"
+        },
+        {
+          "command": "spine.review.approve",
+          "when": "resourceScheme =~ /^spine-(diff|patch)$/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "spine.review.reject",
+          "when": "resourceScheme =~ /^spine-(diff|patch)$/",
+          "group": "navigation@2"
         }
       ],
       "commandPalette": [
@@ -131,6 +235,170 @@
         {
           "command": "spine.rejectPlan",
           "when": "spine.planActive"
+        },
+        {
+          "command": "spine.buildPlan",
+          "when": "spine.planActive"
+        },
+        {
+          "command": "spine.runs.cancel",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.resume",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.raiseCapAndResume",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.approve",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.drop",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.openWorktree",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.openPlan",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.review",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.approveReview",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.rejectReview",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.openPatch",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.fetch",
+          "when": "false"
+        },
+        {
+          "command": "spine.review.approve",
+          "when": "resourceScheme =~ /^spine-(diff|patch)$/"
+        },
+        {
+          "command": "spine.review.reject",
+          "when": "resourceScheme =~ /^spine-(diff|patch)$/"
+        },
+        {
+          "command": "spine.planThisRequirement",
+          "when": "resourceExtname == .md && resourceScheme == file"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "spine.runs.refresh",
+          "when": "view == spine.runs",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "spine.runs.review",
+          "when": "view == spine.runs && viewItem =~ /:review:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.cancel",
+          "when": "view == spine.runs && viewItem =~ /:cancel:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.resume",
+          "when": "view == spine.runs && viewItem =~ /:resume:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.raiseCapAndResume",
+          "when": "view == spine.runs && viewItem =~ /:raiseCapAndResume:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.approveReview",
+          "when": "view == spine.runs && viewItem =~ /:review:/",
+          "group": "1_decide"
+        },
+        {
+          "command": "spine.runs.rejectReview",
+          "when": "view == spine.runs && viewItem =~ /:review:/",
+          "group": "1_decide"
+        },
+        {
+          "command": "spine.runs.approve",
+          "when": "view == spine.runs && viewItem =~ /:approve:/",
+          "group": "1_decide"
+        },
+        {
+          "command": "spine.runs.drop",
+          "when": "view == spine.runs && viewItem =~ /:drop:/",
+          "group": "1_decide"
+        },
+        {
+          "command": "spine.runs.openPatch",
+          "when": "view == spine.runs && viewItem =~ /:review:/",
+          "group": "2_open"
+        },
+        {
+          "command": "spine.runs.fetch",
+          "when": "view == spine.runs && viewItem =~ /:fetch:/",
+          "group": "inline"
+        },
+        {
+          "command": "spine.runs.openWorktree",
+          "when": "view == spine.runs && viewItem =~ /:openWorktree:/",
+          "group": "2_open"
+        },
+        {
+          "command": "spine.runs.openPlan",
+          "when": "view == spine.runs && viewItem =~ /:openPlan:/",
+          "group": "2_open"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "spine.planThisRequirement",
+          "when": "resourceExtname == .md && resourceScheme == file",
+          "group": "spine@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "spine.planThisRequirement",
+          "when": "resourceExtname == .md && resourceScheme == file",
+          "group": "spine@1"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "spine",
+          "title": "Spine",
+          "icon": "media/spine.svg"
+        }
+      ]
+    },
+    "views": {
+      "spine": [
+        {
+          "id": "spine.runs",
+          "name": "Runs"
         }
       ]
     }
@@ -142,6 +410,8 @@
     "test:unit": "npm run compile && mocha 'out/test/unit/**/*.test.js'",
     "test:contract": "npm run compile && mocha --timeout 600000 'out/test/contract/**/*.test.js'",
     "test:integration": "npm run compile && node out/test/integration/run.js",
+    "package": "vsce package",
+    "test:package": "npm run compile && node out/test/package/check.js",
     "test": "npm run test:unit && npm run test:contract && npm run test:integration"
   },
   "dependencies": {
@@ -152,10 +422,14 @@
     "@types/node": "24.19.2",
     "@types/vscode": "1.140.0",
     "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.0.0",
     "eslint": "10.12.0",
     "mocha": "12.0.3",
     "typescript": "6.0.3",
     "typescript-eslint": "8.71.2",
     "zod": "4.6.7"
+  },
+  "overrides": {
+    "@azure/msal-node": "7.1.0"
   }
 }

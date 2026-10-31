@@ -16,6 +16,10 @@ function fakeSpine(): { factory: TransportFactory; made: () => number } {
       content: [{ type: "text", text: JSON.stringify({ symbol, found: true, matches: [] }) }],
     }));
     server.registerTool("broken", {}, async () => ({ isError: true, content: [{ type: "text", text: "boom" }] }));
+    server.registerTool("slow", { inputSchema: { ms: z.number() } }, async ({ ms }) => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return { content: [{ type: "text", text: JSON.stringify({ waited: ms }) }] };
+    });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     void server.connect(serverSide);
     return clientSide;
@@ -58,7 +62,7 @@ describe("SpineClient", () => {
       const spine = fakeSpine();
       const client = new SpineClient({ launch: LAUNCH, isTrusted: () => true, transportFactory: spine.factory });
       try {
-        assert.deepEqual((await client.listTools()).sort(), ["blast_radius", "broken"]);
+        assert.deepEqual((await client.listTools()).sort(), ["blast_radius", "broken", "slow"]);
         assert.deepEqual(await client.callTool("blast_radius", { symbol: "cart_total" }), {
           symbol: "cart_total",
           found: true,
@@ -75,6 +79,18 @@ describe("SpineClient", () => {
       const client = new SpineClient({ launch: LAUNCH, isTrusted: () => true, transportFactory: spine.factory });
       try {
         await assert.rejects(client.callTool("broken", {}), /^Error: Spine broken failed: boom$/);
+      } finally {
+        await client.close();
+      }
+    });
+
+    // A spec derived by Spine's intake model can take minutes; the SDK gives up on a call after 60 s.
+    it("waits as long as a call asks, and gives up after it", async () => {
+      const spine = fakeSpine();
+      const client = new SpineClient({ launch: LAUNCH, isTrusted: () => true, transportFactory: spine.factory });
+      try {
+        await assert.rejects(client.callTool("slow", { ms: 300 }, 50), /timed out/i);
+        assert.deepEqual(await client.callTool("slow", { ms: 100 }, 2_000), { waited: 100 });
       } finally {
         await client.close();
       }
