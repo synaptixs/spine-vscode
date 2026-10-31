@@ -17,6 +17,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath } from "@vscode/test-electron";
 import { scanEnv, scanTree } from "../support/noToken";
 import { planFixture } from "../support/planFixture";
+import { intakeCache, REQUIREMENT_ID, requirementFixture, seedIntake } from "../support/seedIntake";
 import { gitWorktree, runStore, seed } from "../support/seedRuns";
 import { buildVsix, packageVersion } from "../support/vsix";
 
@@ -300,6 +301,30 @@ async function main() {
           reviewed.dispose();
           finished.dispose();
           plans.dispose();
+        }
+      },
+    ],
+    [
+      "requirements",
+      async () => {
+        const reqs = requirementFixture([REQUIREMENT_ID, "CART-10"]);
+        const cache = intakeCache();
+        try {
+          const file = reqs.files[REQUIREMENT_ID];
+          seedIntake(cache, `file://${file}`);
+          // Cached too, so a remote server that is not refused would plan it with no dialog (D109).
+          seedIntake(cache, `file://${reqs.files["CART-10"]}`, ["CART-10"]);
+          await launch(
+            "requirements",
+            process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {},
+            false,
+            { ...cache.env, SPINE_REQUIREMENT_ID: REQUIREMENT_ID, SPINE_REQUIREMENT_FILE: file, SPINE_REMOTE_FILE: reqs.files["CART-10"] },
+            {},
+            reqs.root,
+          );
+        } finally {
+          cache.dispose();
+          reqs.dispose();
         }
       },
     ],

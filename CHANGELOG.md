@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- Plan from requirement (SSPN-246): **Spine: Plan from requirement…** in the Command Palette picks
+  a Markdown file in the folder or takes a pasted ticket or URL, and **Spine: Plan this
+  requirement** sits on a Markdown file's Explorer and editor context menus. Spine derives the
+  requirement's spec as `orchestrator sdlc plan --source` does and the plan opens in the plan
+  review. A spec already derived plans for $0 with no question; deriving one asks first (it spends
+  tokens on the checkout's own key) and says what it spent. A requirement with several intents
+  asks which one. On this machine only: with a remote `spine.server` the command says to use
+  `local`.
+- Spine pinned to 3.68.0, whose `sdlc_plan` plans from a `source`.
+- The extension now also passes its Spine server `ORCHESTRATOR_INTAKE_CACHE_DIR`, so a
+  requirement whose spec was derived in a terminal is reused here rather than derived again.
+- A call that waits on Spine's intake model now waits up to 15 minutes; the MCP SDK's own limit
+  is 60 seconds.
+
 - Diff review (SSPN-245): a build waiting for a review offers **Review diff**, which opens every
   changed file of the build's worktree read-only in one diff editor, plus **Open patch** for the
   exact diff Spine asks about. **Approve diff…** and **Reject diff…** decide it under the git name,

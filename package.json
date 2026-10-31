@@ -53,6 +53,14 @@
         "title": "Spine: Open plan…"
       },
       {
+        "command": "spine.planFromRequirement",
+        "title": "Spine: Plan from requirement…"
+      },
+      {
+        "command": "spine.planThisRequirement",
+        "title": "Spine: Plan this requirement"
+      },
+      {
         "command": "spine.approvePlan",
         "title": "Spine: Approve plan",
         "icon": "$(check)",
@@ -287,6 +295,10 @@
         {
           "command": "spine.review.reject",
           "when": "resourceScheme =~ /^spine-(diff|patch)$/"
+        },
+        {
+          "command": "spine.planThisRequirement",
+          "when": "resourceExtname == .md && resourceScheme == file"
         }
       ],
       "view/title": [
@@ -356,6 +368,20 @@
           "command": "spine.runs.openPlan",
           "when": "view == spine.runs && viewItem =~ /:openPlan:/",
           "group": "2_open"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "spine.planThisRequirement",
+          "when": "resourceExtname == .md && resourceScheme == file",
+          "group": "spine@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "spine.planThisRequirement",
+          "when": "resourceExtname == .md && resourceScheme == file",
+          "group": "spine@1"
         }
       ]
     },

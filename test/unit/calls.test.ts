@@ -62,6 +62,19 @@ describe("SpineCalls", () => {
       await assert.rejects(calls.call("sdlc_approve", { intent_id: "x" }), PlanMovedError);
       assert.deepEqual(seen, [["sdlc_approve", { intent_id: "x" }]]);
     });
+
+    it("passes a call's timeout to the client, and none when the call names none", async () => {
+      const seen: unknown[] = [];
+      const calls = localCalls(() => ({
+        callTool: async (_name: string, _args: Record<string, unknown>, timeoutMs?: number) => {
+          seen.push(timeoutMs);
+          return {};
+        },
+      }));
+      await calls.call("sdlc_plan", {}, { timeoutMs: 600_000 });
+      await calls.call("sdlc_plan_document", {});
+      assert.deepEqual(seen, [600_000, undefined]);
+    });
   });
 
   describe("remote, through VS Code's MCP connection", () => {

@@ -40,6 +40,16 @@ describe("in an untrusted folder (D12)", () => {
     );
   });
 
+  it("plans no requirement and still starts nothing (SSPN-246)", async () => {
+    await vscode.commands.executeCommand("spine.planThisRequirement", vscode.Uri.file(`${process.env.SPINE_FIXTURE}/docs/CART-9.md`));
+    await sleep(1000);
+    assert.equal(fs.existsSync(marker), false, "the sentinel server was started");
+    assert.equal(
+      vscode.workspace.textDocuments.some((d) => d.uri.scheme === "spine-plan"),
+      false,
+    );
+  });
+
   it("offers VS Code no Spine server to start", async () => {
     assert.deepEqual((await spineApi()).mcpDefinitions(), []);
   });

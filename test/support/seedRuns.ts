@@ -102,7 +102,7 @@ print(json.dumps({"approval_id": approval_id}))
 `;
 
 /** Spine's Python, the same release the extension pins (or SPINE_SEED_PYTHON for a local build). */
-function python(): [string, string[]] {
+export function spinePython(): [string, string[]] {
   const own = process.env.SPINE_SEED_PYTHON;
   if (own) return [own, []];
   return ["uvx", ["--python", ">=3.12", "--from", `synaptixs-spine==${SPINE_VERSION}`, "python"]];
@@ -119,7 +119,7 @@ export function seed(store: RunStoreDirs, s: Seed): { approvalId: string } {
     live.get(store.base)?.push(sleeper);
     pid = sleeper.pid ?? 0;
   }
-  const [cmd, pre] = python();
+  const [cmd, pre] = spinePython();
   const out = execFileSync(cmd, [...pre, "-c", SEED, JSON.stringify({ ...s, artifacts, pid })], {
     env: { ...process.env, ...store.env },
     encoding: "utf8",
