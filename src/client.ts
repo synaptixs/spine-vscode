@@ -61,9 +61,10 @@ export class SpineClient {
   }
 
   /** Call a tool and return its JSON answer; a tool error is raised, never returned as an answer. */
-  async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
+  /** `timeoutMs` replaces the SDK's 60 s for a call that may wait on a model (SSPN-246). */
+  async callTool(name: string, args: Record<string, unknown>, timeoutMs?: number): Promise<unknown> {
     const client = await this.connected();
-    const result = await client.callTool({ name, arguments: args });
+    const result = await client.callTool({ name, arguments: args }, undefined, timeoutMs ? { timeout: timeoutMs } : undefined);
     const text = (result.content as { type: string; text?: string }[])
       .filter((part) => part.type === "text")
       .map((part) => part.text ?? "")

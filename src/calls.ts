@@ -37,7 +37,12 @@ export interface SpineCalls {
   /** `local`, or the name of the server in VS Code's MCP configuration. */
   readonly server: string;
   readonly remote: boolean;
-  call(tool: string, args: Record<string, unknown>): Promise<Record<string, unknown>>;
+  call(tool: string, args: Record<string, unknown>, opts?: CallOptions): Promise<Record<string, unknown>>;
+}
+
+export interface CallOptions {
+  /** How long to wait for the answer; the MCP SDK's own default is 60 s. */
+  timeoutMs?: number;
 }
 
 /** The slice of `vscode.lm` the remote path needs. */
@@ -59,11 +64,13 @@ export function checked(answer: unknown): Record<string, unknown> {
   throw new SpineRefusal(message, out);
 }
 
-export function localCalls(client: () => { callTool(name: string, args: Record<string, unknown>): Promise<unknown> }): SpineCalls {
+export function localCalls(
+  client: () => { callTool(name: string, args: Record<string, unknown>, timeoutMs?: number): Promise<unknown> },
+): SpineCalls {
   return {
     server: "local",
     remote: false,
-    call: async (tool, args) => checked(await client().callTool(tool, args)),
+    call: async (tool, args, opts) => checked(await client().callTool(tool, args, opts?.timeoutMs)),
   };
 }
 

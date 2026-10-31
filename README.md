@@ -40,6 +40,16 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   A decision covers exactly the text you were shown: if the plan changed since you opened it,
   nothing is recorded and the plan reopens. Locally you approve under `git config user.name`, and
   the extension shows that name before the call.
+- **Plan from requirement** (on this machine only). **Spine: Plan from requirement…** in the
+  Command Palette picks a Markdown file in the folder, or takes a pasted ticket or URL
+  (`jira://…`, `confluence://…`, `notion://…`, `file://…`); **Spine: Plan this requirement** is on a
+  Markdown file's Explorer and editor context menus. Spine turns it into a plan as
+  `orchestrator sdlc plan --source` does, and the plan opens in the review above. Deriving the
+  requirement's spec runs Spine's intake model on the key in the checkout's `.env`, so the
+  extension asks first and shows what it spent after. A spec derived once (here or in a terminal)
+  is reused for $0 with no question until the file changes; to derive it again, run
+  `orchestrator sdlc plan --source … --refresh` in a terminal. A requirement holding several
+  intents asks which one to plan.
 - **Build** (at `spine.level` = `build`, on this machine only). An approved plan's title bar has a
   **Build** button; the status line's tooltip says why it is greyed out when it is. A build runs in
   the background from the last commit of your current branch (uncommitted changes are not included),
@@ -86,7 +96,7 @@ In Restricted Mode a workspace's own value for any of these is ignored.
 - [`uv`](https://docs.astral.sh/uv/). The extension starts Spine with one pinned line, so Spine itself does not need to be installed:
 
   ```
-  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.67.1' orchestrator-mcp
+  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.68.0' orchestrator-mcp
   ```
 
   `--python '>=3.12'` lets uv fetch a suitable Python where the system one is older (Debian 12, Ubuntu 22.04).
@@ -103,6 +113,10 @@ trusted, so a checkout cannot choose the program the extension runs.
 Add the server to VS Code's own MCP configuration (`MCP: Open User Configuration`). VS Code runs the
 sign-in and keeps the session; the extension holds no token. A self-hosted server with a shared
 token takes it as a header there, preferably through an `inputs` password prompt.
+
+Plan from requirement and builds stay on this machine: they spend model tokens with the
+checkout's own key, and with `spine.server` naming a remote server the command says to set it to
+`local`.
 
 To review plans there, set `spine.server` to that server's name and `spine.serverRepo` to the
 repository's path on the server (a shared server reads only the checkouts its admin listed). The

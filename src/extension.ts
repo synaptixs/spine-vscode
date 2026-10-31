@@ -13,6 +13,8 @@
  * plan must never be approved on the wrong one (D49).
  *
  * Builds (src/runs.ts, src/builds.ts) run on the local server only, at `spine.level=build` (D21).
+ * Plan from requirement (src/plan-from-requirement.ts, src/requirements.ts) runs on the local server
+ * only too (D109): deriving a spec spends the checkout's own key.
  */
 import * as vscode from "vscode";
 import { BuildRuns, nodeGit } from "./builds";
@@ -21,7 +23,9 @@ import { RestrictedWorkspaceError, SpineClient } from "./client";
 import { exposesTestHooks } from "./hooks";
 import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
+import { SpineRequirements } from "./plan-from-requirement";
 import { SpinePlans } from "./plans";
+import { RequirementPlanner, requirementBlocker } from "./requirements";
 import { gitUserName, PlanReview } from "./review";
 import { ReviewDiffs } from "./review-diff";
 import { SpineRuns } from "./runs";
@@ -103,6 +107,16 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     state: context.workspaceState,
   });
   const plans = new SpinePlans(() => review, showTrustNotice, buildBlocker, (id) => runs.build(id));
+  const planner = new RequirementPlanner({
+    calls: () => localCalls(() => client),
+    repo: () => folder()?.fsPath,
+    isTrusted: () => vscode.workspace.isTrusted,
+    blocker: () => requirementBlocker(server(), level()),
+    open: async (id) => {
+      await vscode.commands.executeCommand("spine.openPlan", id);
+    },
+  });
+  const requirements = new SpineRequirements(() => planner, showTrustNotice);
   let refresh: NodeJS.Timeout | undefined;
   const changedOnDisk = () => {
     clearTimeout(refresh);
@@ -135,6 +149,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     }),
     lenses,
     plans,
+    requirements,
     runs,
     diffs,
     watcher,

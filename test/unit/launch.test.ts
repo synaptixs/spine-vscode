@@ -1,9 +1,9 @@
 import * as assert from "node:assert/strict";
 import { spineLaunch } from "../../src/launch";
 
-// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.67.1). A literal on
+// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.68.0). A literal on
 // purpose: drift in the version or in the extras list must fail here, not in a user's editor.
-const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.67.1";
+const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.68.0";
 
 describe("spineLaunch", () => {
   it("starts Spine with the guide's pinned uvx line by default", () => {
@@ -49,6 +49,17 @@ describe("spineLaunch", () => {
       SPINE_RUN_ARTIFACTS: "/runs/art",
     });
     assert.deepEqual(spineLaunch("/opt/orchestrator-mcp", undefined, { TMPDIR: "/t" }).env, { TMPDIR: "/t" });
+  });
+
+  // D110: the same reason as D88, for the intake cache. A spec derived in a terminal is reused by the
+  // editor only when both read the same cache (SSPN-246).
+  it("passes where Spine caches derived specs, so the editor reuses a terminal's extraction", () => {
+    const inherited = { TMPDIR: "/t", ORCHESTRATOR_INTAKE_CACHE_DIR: "/cache/intake" };
+    assert.deepEqual(spineLaunch(undefined, "plan", inherited).env, {
+      ORCHESTRATOR_MCP_LEVEL: "plan",
+      TMPDIR: "/t",
+      ORCHESTRATOR_INTAKE_CACHE_DIR: "/cache/intake",
+    });
   });
 
   it("passes no key, budget or other variable: those come from the checkout's .env", () => {
