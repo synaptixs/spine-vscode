@@ -2,7 +2,7 @@
   "name": "spine-vscode",
   "displayName": "Spine",
   "description": "Spine's Product Knowledge Graph in the editor: callers, blast radius, untested code and docs above your code, over MCP.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "synaptixs",
   "private": true,
   "license": "MIT",
@@ -11,7 +11,7 @@
     "url": "https://github.com/synaptixs/spine-vscode.git"
   },
   "engines": {
-    "vscode": "^1.140.0",
+    "vscode": "^1.128.0",
     "node": ">=22"
   },
   "categories": [
@@ -412,7 +412,8 @@
     "test:integration": "npm run compile && node out/test/integration/run.js",
     "package": "vsce package",
     "test:package": "npm run compile && node out/test/package/check.js",
-    "test": "npm run test:unit && npm run test:contract && npm run test:integration"
+    "test": "npm run test:unit && npm run test:contract && npm run test:integration",
+    "test:cursor": "npm run compile && node out/test/integration/run.js installed cursor"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1"
@@ -420,7 +421,7 @@
   "devDependencies": {
     "@types/mocha": "10.0.10",
     "@types/node": "24.19.2",
-    "@types/vscode": "1.140.0",
+    "@types/vscode": "1.125.0",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.0.0",
     "eslint": "10.12.0",

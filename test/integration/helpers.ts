@@ -5,6 +5,7 @@ export interface SpineApiForTests {
   readonly trusted: boolean;
   doctor(): Promise<unknown>;
   mcpDefinitions(): vscode.McpServerDefinition[];
+  editor(): Promise<{ name: string; mcpDefinitions: boolean; remoteServers: boolean }>;
   plans: {
     list(): Promise<{ plans: { intent_id: string; state: string }[]; count: number; truncated: boolean }>;
     current(): PlanView | undefined;

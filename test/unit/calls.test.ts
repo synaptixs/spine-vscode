@@ -1,11 +1,14 @@
 import * as assert from "node:assert/strict";
 import { checked, localCalls, type LmTools, PlanMovedError, remoteCalls, remoteToolName, SpineRefusal } from "../../src/calls";
+import { remoteRefusal } from "../../src/editor";
 
 /** VS Code's tool list, as the D8 probe saw it: the prefix is derived from the server, not its configured name. */
-function fakeLm(names: string[], answer: string): LmTools & { seen: [string, unknown][]; started: number } {
+function fakeLm(names: string[], answer: string, editor = "Visual Studio Code", supported = true): LmTools & { seen: [string, unknown][]; started: number } {
   const lm = {
     seen: [] as [string, unknown][],
     started: 0,
+    editor,
+    supported: async () => supported,
     names: () => names,
     invoke: async (name: string, input: Record<string, unknown>) => {
       lm.seen.push([name, input]);
@@ -98,6 +101,16 @@ describe("SpineCalls", () => {
       assert.equal(calls.server, "company-spine");
       await assert.rejects(calls.call("sdlc_plan_document", {}), /no MCP server in VS Code offers sdlc_plan_document/);
       assert.equal(lm.started, 1);
+      assert.deepEqual(lm.seen, []);
+    });
+
+    it("refuses in an editor without VS Code's MCP connection, before starting or calling anything (SSPN-284, D119)", async () => {
+      const lm = fakeLm(["mcp_s_sdlc_plan_document"], "{}", "Cursor", false);
+      await assert.rejects(
+        remoteCalls("company-spine", lm).call("sdlc_plan_document", {}),
+        (err: unknown) => err instanceof SpineRefusal && err.message === remoteRefusal("Cursor"),
+      );
+      assert.equal(lm.started, 0);
       assert.deepEqual(lm.seen, []);
     });
 

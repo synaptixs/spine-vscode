@@ -9,6 +9,7 @@
  * Spine refuses with a normal answer that carries `error` (CLAUDE.md), so every answer is
  * checked here; a refusal naming both digests is a plan that moved since it was read.
  */
+import { remoteRefusal } from "./editor";
 
 export class SpineRefusal extends Error {
   constructor(
@@ -51,6 +52,10 @@ export interface LmTools {
   invoke(name: string, input: Record<string, unknown>): Promise<string>;
   /** Ask VS Code to start its MCP servers: their tools are not listed until something does. */
   start(): Promise<void>;
+  /** The editor's name, for a refusal that says where it is (`vscode.env.appName`). */
+  readonly editor: string;
+  /** Whether this editor has VS Code's own MCP connection at all (SSPN-284: Cursor does not). */
+  supported(): Promise<boolean>;
 }
 
 export function checked(answer: unknown): Record<string, unknown> {
@@ -94,6 +99,9 @@ export function remoteToolName(names: string[], tool: string): string {
 
 export function remoteCalls(server: string, lm: LmTools): SpineCalls {
   let started = false;
+  // Asked once per server: an editor without VS Code's MCP connection is refused before anything
+  // is started or called, with the way out, rather than with a "command not found" (SSPN-284, D119).
+  let supported: Promise<boolean> | undefined;
   // Nothing in Spine's answers names the server, so the first one to answer is the one this
   // review keeps: a later call that resolves to another prefix is refused, never followed.
   let pinned: string | undefined;
@@ -114,6 +122,7 @@ export function remoteCalls(server: string, lm: LmTools): SpineCalls {
     server,
     remote: true,
     call: async (tool, args) => {
+      if (!(await (supported ??= lm.supported()))) throw new SpineRefusal(remoteRefusal(lm.editor), {});
       const text = await lm.invoke(await resolve(tool), args);
       let answer: unknown;
       try {
