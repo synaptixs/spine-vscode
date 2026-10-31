@@ -15,11 +15,16 @@
  * Builds (src/runs.ts, src/builds.ts) run on the local server only, at `spine.level=build` (D21).
  * Plan from requirement (src/plan-from-requirement.ts, src/requirements.ts) runs on the local server
  * only too (D109): deriving a spec spends the checkout's own key.
+ *
+ * The same .vsix runs in Cursor (SSPN-284). Cursor stubs the definition provider and has no MCP
+ * connection of VS Code's own, so src/editor.ts decides what this editor really gives: the
+ * definition is registered only where it is real, and remote review is refused where it cannot work.
  */
 import * as vscode from "vscode";
 import { BuildRuns, nodeGit } from "./builds";
 import { type LmTools, localCalls, remoteCalls, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
+import { editorFeatures, mcpNotice, remoteServersSupported } from "./editor";
 import { exposesTestHooks } from "./hooks";
 import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
@@ -34,10 +39,14 @@ export interface SpineApi {
   readonly trusted: boolean;
   doctor(): Promise<unknown>;
   mcpDefinitions(): vscode.McpServerDefinition[];
+  editor(): Promise<{ name: string; mcpDefinitions: boolean; remoteServers: boolean }>;
   /** Only when loaded from source, for the integration suites (src/hooks.ts). */
   plans?: ReturnType<SpinePlans["api"]>;
   runs?: ReturnType<SpineRuns["api"]>;
 }
+
+/** Set once the D118 notice was shown in this editor, so it is shown once, not on every start. */
+const MCP_NOTICE_SHOWN = "spine.mcpNoticeShown";
 
 const TRUST_NOTICE = "Spine is off in Restricted Mode: it starts no process here. Trust this folder to use it.";
 
@@ -52,6 +61,11 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
 
   let client = newClient();
   const definitionsChanged = new vscode.EventEmitter<void>();
+  // The same .vsix runs in Cursor, which stubs the definition provider (SSPN-284, src/editor.ts).
+  const editor = editorFeatures({
+    appName: vscode.env.appName,
+    hasDefinitionProvider: typeof vscode.lm?.registerMcpServerDefinitionProvider === "function",
+  });
 
   const mcpDefinitions = (): vscode.McpServerDefinition[] => {
     if (!vscode.workspace.isTrusted || server() !== "local") return [];
@@ -127,10 +141,14 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
   context.subscriptions.push(
     definitionsChanged,
     { dispose: () => void client.close() },
-    vscode.lm.registerMcpServerDefinitionProvider("spine.mcp", {
-      onDidChangeMcpServerDefinitions: definitionsChanged.event,
-      provideMcpServerDefinitions: mcpDefinitions,
-    }),
+    ...(editor.mcpDefinitions
+      ? [
+          vscode.lm.registerMcpServerDefinitionProvider("spine.mcp", {
+            onDidChangeMcpServerDefinitions: definitionsChanged.event,
+            provideMcpServerDefinitions: mcpDefinitions,
+          }),
+        ]
+      : []),
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
       definitionsChanged.fire();
       lenses.invalidate();
@@ -175,8 +193,13 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     vscode.commands.registerCommand("spine.doctor", async () => {
       try {
         const report = (await doctor()) as { server?: { version?: string }; all_passed?: boolean };
+        const off = [
+          editor.mcpDefinitions ? "" : "its agent takes Spine from its own MCP settings",
+          (await lmTools.supported()) ? "" : "remote plan review is off",
+        ].filter(Boolean);
         void vscode.window.showInformationMessage(
-          `Spine ${report.server?.version ?? "?"} is answering${report.all_passed ? "; every check passed" : ""}.`,
+          `Spine ${report.server?.version ?? "?"} is answering${report.all_passed ? "; every check passed" : ""}.` +
+            (off.length ? ` In ${editor.name}, ${off.join(" and ")}.` : ""),
         );
       } catch (err) {
         if (err instanceof RestrictedWorkspaceError) showTrustNotice();
@@ -186,6 +209,11 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
   );
 
   if (!vscode.workspace.isTrusted) showTrustNotice();
+  const notice = mcpNotice(editor, context.globalState.get<boolean>(MCP_NOTICE_SHOWN, false));
+  if (notice) {
+    void context.globalState.update(MCP_NOTICE_SHOWN, true);
+    void vscode.window.showInformationMessage(`Spine: ${notice}`);
+  }
 
   return {
     get trusted() {
@@ -193,6 +221,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     },
     doctor,
     mcpDefinitions,
+    editor: async () => ({ ...editor, remoteServers: await lmTools.supported() }),
     plans: exposesTestHooks(context.extensionMode, vscode.ExtensionMode.Production) ? plans.api() : undefined,
     runs: exposesTestHooks(context.extensionMode, vscode.ExtensionMode.Production) ? runs.api() : undefined,
   };
@@ -209,6 +238,8 @@ const lmTools: LmTools = {
   start: async () => {
     await vscode.commands.executeCommand("workbench.mcp.startServer", "*", { waitForLiveTools: true });
   },
+  editor: vscode.env.appName,
+  supported: () => remoteServersSupported(typeof vscode.lm?.invokeTool === "function", () => vscode.commands.getCommands(true)),
 };
 
 function showTrustNotice(): void {

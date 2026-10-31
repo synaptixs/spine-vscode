@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Cursor (SSPN-284): the `.vsix` installs and runs in Cursor 3.27, which is VS Code 1.128
+  underneath. `engines.vscode` is now `^1.128.0`, and CI runs every suite on VS Code 1.128.0 as
+  well as 1.142.0. Lenses, hovers, plan review, builds, diff review and planning from a requirement
+  work there as in VS Code. Cursor's agent does not take MCP servers from extensions, so the
+  extension says once to add Spine as Spine's guide shows. Remote plan review is refused there
+  with the reason and the way out, rather than failing with "command not found". **Spine: Doctor**
+  names what is off. `npm run test:cursor` runs the installed suite in a fresh Cursor profile.
+
 ## 0.2.0 — 2026-10-31
 
 Builds, diff review and planning from a requirement, all in the editor, on Spine 3.68.0.
