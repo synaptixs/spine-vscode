@@ -39,6 +39,32 @@ describe("the installed .vsix in a fresh profile (SSPN-275, SSPN-247)", () => {
     assert.equal(ext.exports.plans, undefined);
   });
 
+  // SSPN-284: the same .vsix in VS Code and in Cursor. Cursor stubs the MCP definition provider
+  // and has no MCP connection of VS Code's own, so the installed copy must know that, not guess it.
+  it("knows what this editor supports", async () => {
+    const cursor = vscode.env.appName === "Cursor";
+    assert.deepEqual(await ext.exports.editor(), { name: vscode.env.appName, mcpDefinitions: !cursor, remoteServers: !cursor });
+  });
+
+  // The other half of the same guard: where the definition provider is real, VS Code's own MCP
+  // list must hold Spine (as the D8 probe found). Nothing else checks the registration itself.
+  it("offers VS Code's chat the Spine server, where the editor takes one", async function () {
+    if (!(await ext.exports.editor()).mcpDefinitions) this.skip();
+    // Extension-provided servers load lazily: only the "MCP: List Servers" quick pick (or chat)
+    // makes VS Code ask providers, so open and close it first (D8 probe, 2026-10-27: without it
+    // `startServer *` ran in 4 ms and listed no Spine tool).
+    void vscode.commands.executeCommand("workbench.mcp.listServer");
+    await sleep(3000);
+    await vscode.commands.executeCommand("workbench.action.closeQuickOpen");
+    await vscode.commands.executeCommand("workbench.mcp.startServer", "*", { waitForLiveTools: true, autoTrustChanges: true });
+    let names: string[] = [];
+    for (let i = 0; i < 60 && !names.length; i++) {
+      names = vscode.lm.tools.map((t) => t.name).filter((n) => n.endsWith("_doctor"));
+      if (!names.length) await sleep(500);
+    }
+    assert.equal(names.length, 1, `Spine's tools are not in VS Code's MCP list: ${vscode.lm.tools.map((t) => t.name).join(", ")}`);
+  });
+
   it("registers every command it contributes, and its Runs view", async () => {
     const commands = await vscode.commands.getCommands(true);
     const contributed = (ext.packageJSON as { contributes: { commands: { command: string }[] } }).contributes.commands.map((c) => c.command);

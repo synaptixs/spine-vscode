@@ -6,7 +6,10 @@
   trust, the pinned launch line) gets a mutation check: break it on purpose and watch a test fail.
 - **The gate**, all green before a PR: `npm run lint`, `npm run typecheck`, `npm run test:unit`,
   `npm run test:package`, `npm run test:contract`, `npm run test:integration`, then
-  `node out/test/integration/run.js installed` (the `.vsix` in a fresh profile). CI runs the same three jobs.
+  `node out/test/integration/run.js installed` (the `.vsix` in a fresh profile). CI runs the same three jobs,
+  the integration job on VS Code 1.142.0 and 1.128.0. **Cursor is not in CI:** a change that touches
+  activation, the MCP definition, remote review or packaging also runs `npm run test:cursor` on a
+  machine with Cursor, and the PR carries its output (SSPN-284, D120).
 - **Dependencies:** exact versions, each published at least two weeks before it is added
   (`npm install --before=<date>`), and `npm audit` at 0. When the two collide, pin the oldest
   version that is outside the advisory with `overrides`, as `@azure/msal-node` is (only `vsce

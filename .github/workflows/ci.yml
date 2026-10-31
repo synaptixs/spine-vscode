@@ -3,7 +3,9 @@
 # guard, sentinel control, real server), then the packaged .vsix installed into a fresh profile.
 # The .vsix is built once, in the check job, and the integration job installs that file on its own
 # runner, so the copy under test was built on a machine other than the one that installs it (SSPN-247,
-# D113). A push to main leaves the release's .vsix as this run's artifact.
+# D113). A push to main leaves the release's .vsix as this run's artifact. The integration job runs
+# on VS Code 1.142.0 and on 1.128.0, the floor engines.vscode claims (SSPN-284); Cursor is tested
+# locally with `npm run test:cursor` (D120).
 name: ci
 
 on:
@@ -53,6 +55,13 @@ jobs:
   integration:
     needs: check
     runs-on: ubuntu-latest
+    # SSPN-284 (D117): engines.vscode claims 1.128 (Cursor 3.27's base), so every suite runs there too.
+    strategy:
+      fail-fast: false
+      matrix:
+        vscode: ["1.142.0", "1.128.0"]
+    env:
+      SPINE_VSCODE_VERSION: ${{ matrix.vscode }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7

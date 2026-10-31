@@ -7,8 +7,8 @@ holds no API key. The lenses, hovers and plan review spend nothing. A build, and
 requirement's spec, use the model key in the checkout's own `.env`, and the extension asks before
 either one.
 
-**Status:** private preview (0.2.0), not on the Marketplace. VS Code only for now: VS Code forks
-such as Cursor are not supported yet.
+**Status:** private preview (0.2.0), not on the Marketplace or Open VSX. Runs in VS Code and in
+Cursor (see [In Cursor](#in-cursor)); other VS Code forks are untested.
 
 ## Install
 
@@ -19,6 +19,9 @@ terminal:
 ```
 code --install-extension spine-vscode-0.2.0.vsix
 ```
+
+In Cursor it is the same file: **Extensions → ⋯ → Install from VSIX…**, or
+`cursor --install-extension spine-vscode-0.2.0.vsix`.
 
 Then make sure [`uv`](https://docs.astral.sh/uv/) is installed (see Requirements) and open a
 folder you trust. The first start downloads Spine through `uv`, which takes a few seconds; after
@@ -97,7 +100,7 @@ In Restricted Mode a workspace's own value for any of these is ignored.
 
 ## Requirements
 
-- VS Code 1.140 or newer (tested on 1.142.0).
+- VS Code 1.128 or newer (tested on 1.128.0 and 1.142.0), or Cursor 3.27 (tested on 3.27.14).
 - [`uv`](https://docs.astral.sh/uv/). The extension starts Spine with one pinned line, so Spine itself does not need to be installed:
 
   ```
@@ -112,6 +115,23 @@ In Restricted Mode a workspace's own value for any of these is ignored.
 In a folder you have not trusted, Spine starts no process and calls no tool; a notice offers to
 trust the folder. `spine.serverPath` is ignored in a workspace's own settings until the folder is
 trusted, so a checkout cannot choose the program the extension runs.
+
+## In Cursor
+
+Cursor 3.27 is VS Code 1.128 underneath and runs the same `.vsix`. The lenses, hovers, plan review,
+builds, diff review and planning from a requirement work as they do in VS Code: they reach Spine
+through the extension's own connection. Two things do not, because Cursor does not give extensions
+what they need:
+
+- **Cursor's agent does not get Spine from the extension.** VS Code's chat does: the extension
+  offers Spine to it as an MCP server, and Cursor ignores that offer. Add Spine to Cursor yourself
+  as [Spine's guide](https://github.com/synaptixs/spine/blob/main/AGENT_GUIDE.md#cursor) shows; the
+  extension says so once.
+- **Remote plan review is off.** A named `spine.server` goes through VS Code's own MCP connection,
+  which holds the sign-in, and Cursor has none for extensions. Plan review says so and suggests
+  `local`.
+
+**Spine: Doctor** names what is off in the editor you are in.
 
 ## Remote Spine servers
 
@@ -153,7 +173,11 @@ npm run test:contract       # the real pinned Spine; needs uv
 npm run test:integration    # a real VS Code: untrusted, sentinel and real-server suites
 ```
 
-`VSCODE_PATH` points the integration suites at an installed VS Code instead of downloading 1.142.0.
+`VSCODE_PATH` points the integration suites at an installed VS Code instead of downloading 1.142.0;
+`SPINE_VSCODE_VERSION` downloads another version instead (CI runs 1.142.0 and 1.128.0, the floor
+`engines.vscode` claims). `npm run test:cursor` packages the `.vsix`, installs it into a fresh
+Cursor profile with Cursor's own CLI and runs the installed suite there; it needs Cursor installed
+(`CURSOR_PATH` if it is not `/Applications/Cursor.app/Contents/MacOS/Cursor`).
 `SPINE_SERVER_PATH` points the contract and lens suites at an unreleased Spine build's `orchestrator-mcp`.
 `node out/test/integration/run.js probe` records how MCP tools reach the extension through VS Code
 (evidence for the sign-in route, not a gate).

@@ -21,7 +21,22 @@ import { intakeCache, REQUIREMENT_ID, requirementFixture, seedIntake, writeRequi
 import { gitWorktree, runStore, seed } from "../support/seedRuns";
 import { buildVsix, packageVersion } from "../support/vsix";
 
-export const VSCODE_VERSION = "1.142.0";
+// SSPN-284 (D117): CI also runs every suite on 1.128.0, the floor `engines.vscode` claims and
+// Cursor 3.27's base, by setting SPINE_VSCODE_VERSION.
+export const VSCODE_VERSION = process.env.SPINE_VSCODE_VERSION ?? "1.142.0";
+
+/** Where Cursor is installed; `installed cursor` runs the installed suite in it (SSPN-284, D120). */
+const CURSOR_PATH = process.env.CURSOR_PATH ?? "/Applications/Cursor.app/Contents/MacOS/Cursor";
+
+/**
+ * The editor under test: an installed Cursor for `installed cursor`, else `VSCODE_PATH`, else the
+ * pinned VS Code. Cursor ships VS Code's own CLI layout (`Resources/app/bin/code`, a wrapper for its
+ * CLI), so installing with `resolveCliArgsFromVSCodeExecutablePath` works for both.
+ */
+async function editorPath(editor: string | undefined): Promise<string> {
+  if (editor === "cursor") return CURSOR_PATH;
+  return process.env.VSCODE_PATH ?? (await downloadAndUnzipVSCode(VSCODE_VERSION));
+}
 
 const root = path.resolve(__dirname, "../../..");
 const fixture = path.join(root, "test/fixture/.repo");
@@ -44,6 +59,7 @@ async function launch(
   // The installed .vsix is under test (SSPN-275): this empty extension only carries the test
   // runner, and neither this repository nor `--disable-extensions` is passed.
   installedStub?: string,
+  editor?: string,
 ) {
   const userData = path.join(dir, "user-data");
   fs.mkdirSync(path.join(userData, "User"), { recursive: true });
@@ -51,7 +67,7 @@ async function launch(
   for (const [name, body] of Object.entries(userFiles)) {
     fs.writeFileSync(path.join(userData, "User", name), JSON.stringify(body, null, 2));
   }
-  const exe = process.env.VSCODE_PATH ?? (await downloadAndUnzipVSCode(VSCODE_VERSION));
+  const exe = await editorPath(editor);
   const args = [
     folder,
     "--no-sandbox",
@@ -186,13 +202,15 @@ async function company(role: string | undefined) {
  * SSPN-275: package the extension, install the .vsix into a fresh profile with VS Code's own CLI,
  * and run the suite against that installed copy. By name, and in CI's integration job, where
  * `SPINE_VSIX` is the package the check job built on another runner (SSPN-247, D113).
+ * `installed cursor` (`npm run test:cursor`) does the same in an installed Cursor: a fresh
+ * `--user-data-dir` and `--extensions-dir`, Cursor's own CLI, the same suite (SSPN-284, D120).
  */
-async function installed() {
+async function installed(editor?: string) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-installed-"));
   const vsix = process.env.SPINE_VSIX ?? buildVsix(path.join(dir, "dist"));
   const extensions = path.join(dir, "extensions");
   const userData = path.join(dir, "user-data");
-  const exe = process.env.VSCODE_PATH ?? (await downloadAndUnzipVSCode(VSCODE_VERSION));
+  const exe = await editorPath(editor);
   const [cli, ...cliArgs] = resolveCliArgsFromVSCodeExecutablePath(exe);
   execFileSync(cli, [...cliArgs, `--extensions-dir=${extensions}`, `--user-data-dir=${userData}`, "--install-extension", vsix], {
     stdio: "inherit",
@@ -227,6 +245,7 @@ async function installed() {
       dir,
       undefined,
       stub,
+      editor,
     );
   } finally {
     cache.dispose();
@@ -343,7 +362,7 @@ async function main() {
     ],
   ];
   if (only === "company") return company(process.argv[3]);
-  if (only === "installed") return installed();
+  if (only === "installed") return installed(process.argv[3]);
   // The D8 probe is evidence-gathering, not a gate: run it by name (`probe`), never by default.
   if (only === "probe") {
     const mcp = process.env.SPINE_PROBE_MCP_JSON ? JSON.parse(fs.readFileSync(process.env.SPINE_PROBE_MCP_JSON, "utf8")) : undefined;
