@@ -14,6 +14,7 @@
  * - Restricted Mode calls nothing, over either transport (D12).
  */
 import { execFile } from "node:child_process";
+import * as path from "node:path";
 import { PlanMovedError, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
 
@@ -142,6 +143,22 @@ export class PlanReview {
     }
   }
 
+  /**
+   * Re-plan from an edited spec (B180, D127): `sdlc_plan` with `spec` renders the document again,
+   * deterministically, with no model and nothing spent. The build gate re-derives the plan from
+   * that spec, so the spec, not the document, is what a person edits. The plan is then read again:
+   * an approval of the old text reads stale.
+   */
+  async replan(intentId: string, spec: Record<string, unknown>): Promise<PlanView> {
+    const calls = this.options.calls();
+    const repo = this.guard(calls);
+    if (calls.remote) throw new Error(`Edit spec works on the local server only: the spec of ${intentId} is a file in this checkout`);
+    const named = typeof spec.intent_id === "string" ? spec.intent_id : intentId;
+    if (named !== intentId) throw new Error(`the edited spec names intent ${named}, not ${intentId}: it would write another plan. Put the id back`);
+    await calls.call("sdlc_plan", { repo_path: repo, spec });
+    return this.open(intentId);
+  }
+
   /** The Approve button: confirm who is approving, then decide. `undefined` when nothing was recorded. */
   async approve(view: PlanView, prompts: Prompts): Promise<PlanView | undefined> {
     if (!view.canDecide) return void prompts.warn(`Spine: you cannot approve ${view.intentId}: ${view.reason}`);
@@ -207,6 +224,7 @@ export function statusText(view: PlanView): { text: string; tooltip: string } {
       ? `A decision here is ${NOT_A_GATE}.`
       : `Locally you are approving as ${view.approver || "nobody: set git config user.name"}.`,
   ];
+  if (!view.remote) lines.push(`File: ${planFile(view.repo, view.intentId)} (read-only here: change it with Edit spec…)`);
   if (view.approval) lines.push(`Decided ${view.approval.decided_at} on digest ${short(view.approval.digest)}.`);
   if (!view.canDecide) lines.push(`You cannot decide: ${view.reason}`);
   return { text: `$(${icon}) Spine plan ${view.intentId}: ${said} · ${short(view.digest)}`, tooltip: lines.join("\n") };
@@ -217,4 +235,24 @@ export function gitUserName(cwd: string): Promise<string> {
   return new Promise((resolve) => {
     execFile("git", ["config", "user.name"], { cwd, timeout: 10_000 }, (err, stdout) => resolve(err ? "" : stdout.trim()));
   });
+}
+
+
+/**
+ * The `spine-plan:` document's path: the name Spine gives the plan's file, `<id>-build.md` (B180).
+ * It is a read-only view of what Spine holds, so a decision binds to the text shown (D27, D28).
+ */
+export const planPath = (intentId: string) => `/${intentId}-build.md`;
+export const idOfPlanPath = (docPath: string) => docPath.replace(/^\//, "").replace(/-build\.md$/, "");
+
+/** Where Spine keeps a plan's spec: `.spine/plans/<id>-spec.json`, beside the plan (`builddoc.spec_path`). */
+export const specFile = (repo: string, intentId: string) => path.join(repo, ".spine", "plans", `${intentId}-spec.json`);
+/** Where Spine keeps the plan itself: `.spine/plans/<id>-build.md` (`builddoc.plan_file`). */
+export const planFile = (repo: string, intentId: string) => path.join(repo, ".spine", "plans", `${intentId}-build.md`);
+
+/** The intent whose spec `file` is, when it is one directly under `repo`'s `.spine/plans`. */
+export function intentOfSpecFile(file: string, repo: string): string | undefined {
+  const rel = path.relative(path.join(repo, ".spine", "plans"), file);
+  if (rel.startsWith("..") || path.isAbsolute(rel) || rel.includes(path.sep)) return undefined;
+  return rel.endsWith("-spec.json") ? rel.slice(0, -"-spec.json".length) || undefined : undefined;
 }

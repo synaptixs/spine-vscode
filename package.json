@@ -83,6 +83,16 @@
         "enablement": "spine.planCanBuild"
       },
       {
+        "command": "spine.editSpec",
+        "title": "Spine: Edit spec…",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "spine.revealPlanFile",
+        "title": "Spine: Reveal plan file",
+        "icon": "$(go-to-file)"
+      },
+      {
         "command": "spine.runs.refresh",
         "title": "Refresh",
         "icon": "$(refresh)"
@@ -221,6 +231,16 @@
           "group": "navigation@3"
         },
         {
+          "command": "spine.editSpec",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@4"
+        },
+        {
+          "command": "spine.revealPlanFile",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@5"
+        },
+        {
           "command": "spine.review.approve",
           "when": "resourceScheme =~ /^spine-(diff|patch)$/",
           "group": "navigation@1"
@@ -242,6 +262,14 @@
         },
         {
           "command": "spine.buildPlan",
+          "when": "spine.planActive"
+        },
+        {
+          "command": "spine.editSpec",
+          "when": "spine.planActive"
+        },
+        {
+          "command": "spine.revealPlanFile",
           "when": "spine.planActive"
         },
         {
