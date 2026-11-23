@@ -11,7 +11,7 @@ import * as vscode from "vscode";
 import { PlanMovedError } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
 import * as fs from "node:fs";
-import { idOfPlanPath, planFile, planPath, type PlanReview, type PlanView, type Prompts, specFile, statusText } from "./review";
+import { idOfPlanPath, planFile, planPath, type PlanReview, type PlanView, type Prompts, specFile, staleMessage, statusText } from "./review";
 
 export const SCHEME = "spine-plan";
 const CAN_DECIDE = "spine.planCanDecide";
@@ -30,6 +30,7 @@ const prompts: Prompts = {
       ignoreFocusOut: true,
       validateInput: (value) => (value.trim() ? undefined : "A rejection needs a note."),
     }),
+  choose: async (message, actions) => vscode.window.showWarningMessage(message, { modal: true }, ...actions),
   info: (message) => void vscode.window.showInformationMessage(message),
   warn: (message) => void vscode.window.showWarningMessage(message),
 };
@@ -212,6 +213,21 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     if (view.state !== "approved") {
       void vscode.window.showWarningMessage(`Spine: ${view.intentId} is ${view.state}: only an approved plan is built.`);
       return;
+    }
+    // B182: the build derives the plan again; one from another commit parks at its gate.
+    if (view.fresh === false) {
+      const choice = await vscode.window.showWarningMessage(
+        `${staleMessage(view)} A build now would park at the plan gate.`,
+        { modal: true },
+        "Re-plan ($0)",
+        "Build anyway",
+      );
+      if (choice === "Re-plan ($0)") {
+        this.store(await this.review().replanFromKept(view.intentId));
+        void vscode.window.showInformationMessage(`Spine: re-planned ${view.intentId} for $0. Read it, approve it, then build.`);
+        return;
+      }
+      if (choice !== "Build anyway") return;
     }
     await this.onBuild(view.intentId);
   }

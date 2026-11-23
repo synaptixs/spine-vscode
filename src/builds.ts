@@ -58,6 +58,15 @@ export interface RunView {
   waiting: Waiting | null;
   /** For a `failed` run, the stage that failed and Spine's words for why (B173). */
   failure?: Stage;
+  /** For a `failed` run, its newest kept test output (`run-tests-N.txt`, Spine 3.71, B181). */
+  testLog?: string;
+}
+
+/** One kept test run of `sdlc_builds <run_id>` (`test_runs`, Spine 3.71). */
+export interface TestRun {
+  n: number;
+  path: string;
+  bytes: number;
 }
 
 export interface Stage {
@@ -67,7 +76,18 @@ export interface Stage {
   at: number;
 }
 
-export type RunAction = "review" | "cancel" | "resume" | "approve" | "drop" | "raiseCapAndResume" | "fetch" | "openWorktree" | "openPlan";
+export type RunAction =
+  | "review"
+  | "cancel"
+  | "resume"
+  | "discard"
+  | "approve"
+  | "drop"
+  | "raiseCapAndResume"
+  | "fetch"
+  | "openTestOutput"
+  | "openWorktree"
+  | "openPlan";
 
 /** git in a folder: `ok` is a zero exit; `out` is stdout, or stderr when it failed. */
 export type GitRun = (cwd: string, args: string[]) => Promise<{ ok: boolean; out: string }>;
@@ -109,7 +129,10 @@ const NO_GIT_NAME = "set your name with `git config user.name`: a local decision
 
 const readOnly = (row: RunRow) => row.from_editor === false;
 
-/** What a run offers, in menu order. Discard is not among them: Spine has no tool for it (D86). */
+/**
+ * What a run offers, in menu order. Discard (Spine 3.71, D124) clears a dead run that has not finished:
+ * a dead plan-gate park blocked every new build of its plan, and offered only Resume (B179).
+ */
 export function actionsFor(view: RunView): RunAction[] {
   const { row, waiting } = view;
   const out: RunAction[] = [];
@@ -120,9 +143,12 @@ export function actionsFor(view: RunView): RunAction[] {
     // Its process is gone, so approving would build again from scratch: only dropping it is offered.
     else if (waiting?.kind === REVIEW) out.push("drop");
     else if (waiting && waiting.kind !== OWN_TESTS) out.push("approve", "drop");
-    else if (!waiting && ["running", "parked", "failed"].includes(row.status)) out.push("resume");
+    else if (waiting) out.push("discard");
+    else if (["running", "parked", "failed"].includes(row.status)) out.push("resume", "discard");
     if (row.status === "done" && row.branch && row.worktree) out.push("fetch");
   }
+  // Reading a log changes nothing, so a terminal's run offers it too.
+  if (view.testLog) out.push("openTestOutput");
   if (row.worktree) out.push("openWorktree");
   if (row.intent_id) out.push("openPlan");
   return out;
@@ -207,8 +233,8 @@ export function startMessage(intentId: string, branch: string, sha: string, repo
 export class BuildRuns {
   /** What each parked run waits on, by approval id: a poll does not fetch a review's diff again. */
   private readonly waits = new Map<string, Waiting | null>();
-  /** The failed stage of each failed run, by run id: a poll does not read its stages again (B173). */
-  private readonly failures = new Map<string, Stage | undefined>();
+  /** The failed stage and newest test log of each failed run, by run id: a poll does not read them again (B173, B181). */
+  private readonly failures = new Map<string, { failure?: Stage; testLog?: string }>();
 
   constructor(private readonly options: BuildRunsOptions) {}
 
@@ -222,8 +248,8 @@ export class BuildRuns {
     const rows = (out.runs as RunRow[] | undefined) ?? [];
     const views = await Promise.all(
       rows.map(async (row): Promise<RunView> => {
-        const failure = await this.failureOf(calls, repo, row);
-        return { row, waiting: await this.waitingOf(calls, repo, row), ...(failure ? { failure } : {}) };
+        const { failure, testLog } = await this.failureOf(calls, repo, row);
+        return { row, waiting: await this.waitingOf(calls, repo, row), ...(failure ? { failure } : {}), ...(testLog ? { testLog } : {}) };
       }),
     );
     return { views, count: Number(out.count ?? rows.length), truncated: out.truncated === true, notShown: Number(out.not_shown ?? 0) };
@@ -257,6 +283,27 @@ export class BuildRuns {
     );
     if (!ok) return false;
     await calls.call("sdlc_build", { repo_path: repo, action: "cancel", run_id: view.row.run_id });
+    return true;
+  }
+
+  /**
+   * Discard a run whose process is gone (Spine 3.71, B179, D124): what it waits on is rejected and it
+   * reads abandoned, so its plan can be built again. Cancel is for a live run; this is for a dead one.
+   */
+  async discard(view: RunView, prompts: BuildPrompts): Promise<boolean> {
+    const { row } = view;
+    const what = row.intent_id || row.run_id;
+    if (readOnly(row)) throw new Error(`${row.run_id} was started from a terminal: clear it there (sdlc runs)`);
+    if (row.alive) throw new Error(`${what} is still running: cancel it instead, which ends its process`);
+    const { calls, repo } = this.guard();
+    const ok = await prompts.confirm(
+      `Discard ${what}? Its process is gone. Whatever it waits on is rejected and it reads abandoned; its branch and worktree stay. ` +
+        "You can then build its plan again.",
+      "Discard",
+    );
+    if (!ok) return false;
+    await calls.call("sdlc_build", { repo_path: repo, action: "discard", run_id: row.run_id });
+    prompts.info(`Discarded ${what}: start a new build when its plan is ready.`);
     return true;
   }
 
@@ -376,13 +423,17 @@ export class BuildRuns {
   }
 
   /** The last failed stage of a failed run, as Spine journalled it (`sdlc_builds` with `run_id`). */
-  private async failureOf(calls: SpineCalls, repo: string, row: RunRow): Promise<Stage | undefined> {
-    if (row.status !== "failed") return undefined;
-    if (this.failures.has(row.run_id)) return this.failures.get(row.run_id);
+  private async failureOf(calls: SpineCalls, repo: string, row: RunRow): Promise<{ failure?: Stage; testLog?: string }> {
+    if (row.status !== "failed") return {};
+    const known = this.failures.get(row.run_id);
+    if (known) return known;
     const out = await calls.call("sdlc_builds", { repo_path: repo, run_id: row.run_id });
-    const failed = ((out.stages as Stage[] | undefined) ?? []).filter((s) => s.status === "failed").at(-1);
-    this.failures.set(row.run_id, failed);
-    return failed;
+    const found = {
+      failure: ((out.stages as Stage[] | undefined) ?? []).filter((s) => s.status === "failed").at(-1),
+      testLog: ((out.test_runs as TestRun[] | undefined) ?? []).at(-1)?.path,
+    };
+    this.failures.set(row.run_id, found);
+    return found;
   }
 
   private async waitingOf(calls: SpineCalls, repo: string, row: RunRow): Promise<Waiting | null> {

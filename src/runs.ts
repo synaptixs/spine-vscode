@@ -85,6 +85,11 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
       action("resume", (v) => this.options.builds().resume(v, prompts)),
       action("approve", (v) => this.options.builds().approve(v, prompts)),
       action("drop", (v) => this.options.builds().drop(v, prompts)),
+      action("discard", (v) => this.options.builds().discard(v, prompts)),
+      action("openTestOutput", async (v) => {
+        if (v.testLog) await vscode.window.showTextDocument(vscode.Uri.file(v.testLog), { preview: true });
+        return false;
+      }),
       action("raiseCapAndResume", (v) => this.options.builds().raiseCapAndResume(v, prompts)),
       action("review", async (v) => {
         await this.openReview(v);

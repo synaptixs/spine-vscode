@@ -16,6 +16,18 @@ Fixes from a field report, on the same Spine 3.68.0.
   `.spine/plans/`. **Edit spec…** opens the spec the plan is made from. Saving it plans again for
   $0, with no model. An approval of the old text then no longer holds, and you decide again.
   **Reveal plan file** shows the plan's file in the Explorer.
+- A way out of a dead run (SSPN-405): a run whose process is gone and that has not finished now
+  offers **Discard run…** beside Resume. A build the plan gate refused used to offer only Resume,
+  and it blocked every new build of its plan. Discard rejects what it waits on, marks it abandoned,
+  and keeps its branch and worktree. Needs Spine with `sdlc_build action=discard`.
+- Which tests failed (SSPN-407): a failed build's tooltip carries Spine's reason, which now names the
+  failing tests. **Open test output** opens the last test run's full output. Spine now keeps run
+  logs where a restart does not clear them.
+- A plan from another commit (SSPN-408): Approve warns when the plan was derived at another commit
+  or from a dirty tree, because the build would refuse that approval. It offers **Re-plan ($0)**,
+  and Build warns the same way. The status tooltip says so too.
+- "Spine planned …" names the Jira or Confluence site. A refusal names the checkout whose `.env`
+  Spine read (SSPN-404).
 
 ## 0.3.0 — 2026-10-31
 

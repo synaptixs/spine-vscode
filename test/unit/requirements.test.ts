@@ -21,7 +21,9 @@ const SOURCE = "file:///work/shop/docs/CART-9.md";
  * and spends nothing; a plan of an uncached source derives (spending `cost`) and caches it; several
  * intents and no `intent_id` returns them and plans nothing; a cached source plans for $0.
  */
-function fakeSpine(opts: { cached?: boolean; intents?: Intent[]; cost?: number; estimated?: boolean; warnings?: string[] } = {}) {
+function fakeSpine(
+  opts: { cached?: boolean; intents?: Intent[]; cost?: number; estimated?: boolean; warnings?: string[]; site?: string; refuse?: Record<string, unknown> } = {},
+) {
   const intents = opts.intents ?? [{ id: "CART-9", title: "Show the total with tax" }];
   const state = { cached: !!opts.cached, seen: [] as { args: Record<string, unknown>; timeoutMs?: number }[] };
   const calls: SpineCalls = {
@@ -33,10 +35,18 @@ function fakeSpine(opts: { cached?: boolean; intents?: Intent[]; cost?: number; 
       if (args.extract === false) {
         return { source: args.source, cached: state.cached, intents: state.cached ? intents : [], spent_usd: 0 };
       }
+      if (opts.refuse) return checked(opts.refuse);
       const derived = !state.cached;
       state.cached = true;
       const spent = derived ? (opts.cost ?? 0.0123) : 0;
-      const head = { source: args.source, cached: !derived, spent_usd: spent, spent_estimated: !!opts.estimated, warnings: opts.warnings ?? [] };
+      const head = {
+        source: args.source,
+        cached: !derived,
+        spent_usd: spent,
+        spent_estimated: !!opts.estimated,
+        warnings: opts.warnings ?? [],
+        ...(opts.site !== undefined ? { source_site: opts.site, checkout: REPO } : {}),
+      };
       const chosen = (args.intent_id as string | undefined) ?? (intents.length === 1 ? intents[0].id : undefined);
       if (!chosen) return { ...head, intents, next: "several intents: plan one with intent_id" };
       // A refusal goes through `checked`, as the real seam's does (src/calls.ts).
@@ -122,6 +132,20 @@ describe("Plan from requirement (SSPN-246)", () => {
       assert.equal(asked.confirms.length, 0);
       assert.deepEqual(opened, ["CART-9"]);
       assert.match(asked.infos.at(-1) ?? "", /CART-9.*\$0\b.*cached/);
+    });
+
+    it("says which site a ticket was read from when Spine names it (B178)", async () => {
+      const spine = fakeSpine({ cached: true, site: "acme.atlassian.net" });
+      const { p } = planner(spine);
+      const { p: ask, asked } = prompts();
+      await p.plan(SOURCE, ask);
+      assert.match(asked.infos.at(-1) ?? "", /from .* \(acme\.atlassian\.net\) in shop/);
+    });
+
+    it("a refusal says which checkout's .env and which site Spine read (B178)", async () => {
+      const spine = fakeSpine({ refuse: { error: "Jira not configured (need JIRA_BASE_URL / EMAIL / API_TOKEN)", checkout: "/work/docs", source_site: "" } });
+      const { p } = planner(spine);
+      await assert.rejects(p.plan(SOURCE, prompts().p), /Jira not configured.*read \/work\/docs\/\.env, which names no site for it/s);
     });
 
     it("says which folder the plan was made in (B178, D123)", async () => {

@@ -166,6 +166,16 @@
         "command": "spine.runs.openPlan",
         "title": "Open plan",
         "icon": "$(book)"
+      },
+      {
+        "command": "spine.runs.discard",
+        "title": "Discard run…",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "spine.runs.openTestOutput",
+        "title": "Open test output",
+        "icon": "$(output)"
       }
     ],
     "configuration": {
@@ -301,6 +311,14 @@
           "when": "false"
         },
         {
+          "command": "spine.runs.discard",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.openTestOutput",
+          "when": "false"
+        },
+        {
           "command": "spine.runs.review",
           "when": "false"
         },
@@ -400,6 +418,16 @@
           "command": "spine.runs.openPlan",
           "when": "view == spine.runs && viewItem =~ /:openPlan:/",
           "group": "2_open"
+        },
+        {
+          "command": "spine.runs.openTestOutput",
+          "when": "view == spine.runs && viewItem =~ /:openTestOutput:/",
+          "group": "2_open"
+        },
+        {
+          "command": "spine.runs.discard",
+          "when": "view == spine.runs && viewItem =~ /:discard:/",
+          "group": "1_decide"
         }
       ],
       "explorer/context": [

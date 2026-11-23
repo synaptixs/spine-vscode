@@ -14,7 +14,7 @@
  * - The local server only (D109), and Restricted Mode calls nothing (D12).
  */
 import * as path from "node:path";
-import type { SpineCalls } from "./calls";
+import { SpineRefusal, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
 
 export const SPEND_ACTION = "Derive and plan";
@@ -92,6 +92,14 @@ function spendLine(spent: number, cached: boolean, estimated: boolean): string {
   return `spent $${spent.toFixed(4)}${estimated ? " (estimated)" : ""}`;
 }
 
+/** B178: which checkout's `.env` and which site a refused plan read (Spine 3.71); "" from an older Spine. */
+function whereRead(answer: Record<string, unknown>): string {
+  if (typeof answer.checkout !== "string" || !answer.checkout) return "";
+  const env = path.join(answer.checkout, ".env");
+  const site = typeof answer.source_site === "string" ? answer.source_site : "";
+  return site ? ` (Spine read ${env}; the site is ${site})` : ` (Spine read ${env}, which names no site for it)`;
+}
+
 export class RequirementPlanner {
   constructor(private readonly options: RequirementPlannerOptions) {}
 
@@ -103,8 +111,13 @@ export class RequirementPlanner {
     const repo = this.options.repo();
     if (!repo) throw new Error("open a folder first: a plan is written into its checkout");
     const calls = this.options.calls();
-    const plan = (intentId?: string) =>
-      calls.call("sdlc_plan", { repo_path: repo, source, ...(intentId ? { intent_id: intentId } : {}) }, { timeoutMs: PLAN_TIMEOUT_MS });
+    const plan = async (intentId?: string) => {
+      try {
+        return await calls.call("sdlc_plan", { repo_path: repo, source, ...(intentId ? { intent_id: intentId } : {}) }, { timeoutMs: PLAN_TIMEOUT_MS });
+      } catch (err) {
+        throw err instanceof SpineRefusal ? new SpineRefusal(`${err.message}${whereRead(err.answer)}`, err.answer) : err;
+      }
+    };
 
     const state = await calls.call("sdlc_plan", { repo_path: repo, source, extract: false });
     const cached = state.cached === true;
@@ -132,7 +145,8 @@ export class RequirementPlanner {
     const planned = String(out.intent_id ?? "");
     if (!planned) throw new Error(`Spine planned nothing from ${source}`);
     for (const w of (out.warnings as string[] | undefined) ?? []) prompts.warn(`Spine: ${w}`);
-    prompts.info(`Spine planned ${planned} from ${source} in ${path.basename(repo)} (${repo}): ${spendLine(spent, cached, estimated)}.`);
+    const site = typeof out.source_site === "string" && out.source_site ? ` (${out.source_site})` : "";
+    prompts.info(`Spine planned ${planned} from ${source}${site} in ${path.basename(repo)} (${repo}): ${spendLine(spent, cached, estimated)}.`);
     await this.options.open(planned);
     return { intentId: planned, spentUsd: spent, cached, estimated };
   }

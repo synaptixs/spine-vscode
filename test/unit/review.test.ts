@@ -10,7 +10,9 @@ const REPO = "/work/shop";
  * A fake Spine holding one plan. `sdlc_approve` behaves as the real one does: it refuses an
  * `expected_digest` that is not the current one, and records nothing then.
  */
-function fakeSpine(opts: { remote?: boolean; canApprove?: boolean; reason?: string; digest?: string; failReopen?: boolean } = {}) {
+function fakeSpine(
+  opts: { remote?: boolean; canApprove?: boolean; reason?: string; digest?: string; failReopen?: boolean; freshness?: { derived_at: string; derived_now: string; fresh: boolean } } = {},
+) {
   const state = {
     text: "# Build document\n\n§1 Requirement\n",
     version: 1,
@@ -37,6 +39,7 @@ function fakeSpine(opts: { remote?: boolean; canApprove?: boolean; reason?: stri
           approval: state.approval,
           can_approve: opts.canApprove ?? true,
           reason: opts.reason ?? "",
+          ...(opts.freshness ?? {}),
         };
       }
       if (tool === "sdlc_approve") {
@@ -86,6 +89,75 @@ describe("where a plan and its spec live (B180, SSPN-406, D127)", () => {
     assert.equal(intentOfSpecFile("/work/shop/.spine/plans/history/INT-7-spec.json", "/work/shop"), undefined);
     assert.equal(intentOfSpecFile("/work/other/.spine/plans/INT-7-spec.json", "/work/shop"), undefined);
     assert.equal(intentOfSpecFile("/work/shop/.spine/plans/INT-7-build.md", "/work/shop"), undefined);
+  });
+});
+
+describe("a plan derived at another commit (B182, SSPN-408, D126)", () => {
+  const stale = { derived_at: "bbcc994-dirty", derived_now: "4f2a1c0", fresh: false };
+  const choosing = (answer: string | undefined) => {
+    const asked: string[] = [];
+    const said: string[] = [];
+    const p: Prompts = {
+      confirm: async () => true,
+      choose: async (message, actions) => {
+        asked.push(`${message} [${actions.join(" | ")}]`);
+        return answer;
+      },
+      note: async () => "",
+      info: (m) => void said.push(m),
+      warn: (m) => void said.push(m),
+    };
+    return { p, asked, said };
+  };
+  const reviewOf = (spine: ReturnType<typeof fakeSpine>, spec = '{"intent_id": "INT-7", "title": "Kept spec"}') =>
+    new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada", readFile: () => spec });
+
+  it("reads where the plan was derived and whether that is still the checkout", async () => {
+    const view = await reviewOf(fakeSpine({ freshness: stale })).open(ID);
+    assert.deepEqual([view.derivedAt, view.derivedNow, view.fresh], ["bbcc994-dirty", "4f2a1c0", false]);
+  });
+
+  it("warns before approving, naming both commits and that the build will refuse it", async () => {
+    const spine = fakeSpine({ freshness: stale });
+    const r = reviewOf(spine);
+    const { p, asked } = choosing("Approve anyway");
+    const after = await r.approve(await r.open(ID), p);
+    assert.match(asked[0], /derived at bbcc994-dirty.*checkout is now at 4f2a1c0.*build will refuse/s);
+    assert.match(asked[0], /\[Approve anyway \| Re-plan \(\$0\)\]/);
+    assert.equal(after?.state, "approved");
+  });
+
+  it("Re-plan ($0) renders the plan again from its kept spec and records no decision", async () => {
+    const spine = fakeSpine({ freshness: stale });
+    const r = reviewOf(spine);
+    const { p, said } = choosing("Re-plan ($0)");
+    const after = await r.approve(await r.open(ID), p);
+    assert.deepEqual(spine.approvals(), []);
+    assert.deepEqual(spine.state.seen.find((s) => s.tool === "sdlc_plan")?.args, { repo_path: REPO, spec: { intent_id: ID, title: "Kept spec" } });
+    assert.match(after?.document ?? "", /Kept spec/);
+    assert.match(said.at(-1) ?? "", /re-planned INT-7.*\$0.*read it, then approve/i);
+  });
+
+  it("records nothing when the warning is dismissed", async () => {
+    const spine = fakeSpine({ freshness: stale });
+    const r = reviewOf(spine);
+    assert.equal(await r.approve(await r.open(ID), choosing(undefined).p), undefined);
+    assert.deepEqual(spine.approvals(), []);
+  });
+
+  it("a fresh plan, or a server that says nothing about freshness, gets the plain confirm", async () => {
+    for (const spine of [fakeSpine({ freshness: { derived_at: "4f2a1c0", derived_now: "4f2a1c0", fresh: true } }), fakeSpine()]) {
+      const r = reviewOf(spine);
+      const { p, asked } = choosing("Re-plan ($0)");
+      const after = await r.approve(await r.open(ID), p);
+      assert.equal(asked.length, 0);
+      assert.equal(after?.state, "approved");
+    }
+  });
+
+  it("the status tooltip says the plan is from another commit", async () => {
+    const s = statusText(await reviewOf(fakeSpine({ freshness: stale })).open(ID));
+    assert.match(s.tooltip, /Derived at bbcc994-dirty; the checkout is now at 4f2a1c0: re-plan before approving/);
   });
 });
 
@@ -150,6 +222,7 @@ function prompts(answers: { confirm?: boolean; note?: string } = {}) {
       said.confirm.push(message);
       return answers.confirm ?? true;
     },
+    choose: async () => undefined,
     note: async () => {
       said.notes += 1;
       return answers.note;

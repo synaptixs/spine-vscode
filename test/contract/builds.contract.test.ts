@@ -118,7 +118,7 @@ describe("builds against the real Spine (SSPN-244)", function () {
     assert.equal(await builds.approve(v, yes("the ticket is right")), true);
     const after = await viewOf("verdict000000001");
     assert.equal(after.waiting, null);
-    assert.deepEqual(actionsFor(after), ["resume", "openPlan"]);
+    assert.deepEqual(actionsFor(after), ["resume", "discard", "openPlan"]);
   });
 
   it("drops a park only with a note", async () => {
@@ -154,7 +154,36 @@ describe("builds against the real Spine (SSPN-244)", function () {
     assert.deepEqual(actionsFor(terminal), ["openPlan"]);
     const editor = await viewOf("editor0000000001");
     assert.equal(editor.row.from_editor, true);
-    assert.deepEqual(actionsFor(editor), ["resume", "openPlan"]);
+    assert.deepEqual(actionsFor(editor), ["resume", "discard", "openPlan"]);
+  });
+
+  it("discards a dead plan-gate park, and the plan builds again (B179, D124, Spine 3.71)", async () => {
+    // What the field report left: the plan gate refused at build time and parked with nothing to decide.
+    seed(store, { runId: "gate000000000001", intentId: fixture.intentId, repo, status: "parked", fromEditor: true });
+    await assert.rejects(builds.start(fixture.intentId), (err: unknown) => err instanceof SpineRefusal && /already being built/.test(err.message));
+    const parked = await viewOf("gate000000000001");
+    assert.deepEqual(actionsFor(parked), ["resume", "discard", "openPlan"]);
+    assert.equal(await builds.discard(parked, yes()), true);
+    const discarded = await viewOf("gate000000000001");
+    assert.equal(discarded.row.status, "abandoned");
+    assert.match(discarded.row.parked_reason, new RegExp(`discarded by ${GIT_NAME}`));
+    const { runId } = await builds.start(fixture.intentId);
+    assert.equal((await settle(runId)).row.spent_usd, 0);
+  });
+
+  it("refuses to discard a live run: Spine says to cancel it (D124)", async () => {
+    seed(store, { runId: "live000000000002", intentId: "OTHER-7", repo, status: "running", live: true, fromEditor: true });
+    const v = await viewOf("live000000000002");
+    assert.equal(actionsFor(v).includes("discard"), false);
+    await assert.rejects(call("sdlc_build", { repo_path: repo, action: "discard", run_id: "live000000000002" }), /still running/);
+  });
+
+  it("a failed run names its failed stage and offers its newest test output (B173, B181, Spine 3.71)", async () => {
+    seed(store, { runId: "failed0000000001", intentId: "OTHER-8", repo, status: "failed", fromEditor: true });
+    for (const n of [1, 2]) fs.writeFileSync(`${store.artifacts}/failed0000000001/run-tests-${n}.txt`, `run ${n}\n`);
+    const v = await viewOf("failed0000000001");
+    assert.ok(v.testLog?.endsWith("run-tests-2.txt"), v.testLog);
+    assert.ok(actionsFor(v).includes("openTestOutput"));
   });
 
   it("cancels a live run; its record says abandoned", async () => {
