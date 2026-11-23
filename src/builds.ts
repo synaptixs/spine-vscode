@@ -56,6 +56,8 @@ export interface Waiting {
 export interface RunView {
   row: RunRow;
   waiting: Waiting | null;
+  /** For a `failed` run, the stage that failed and Spine's words for why (B173). */
+  failure?: Stage;
 }
 
 export interface Stage {
@@ -138,6 +140,7 @@ function stateOf(view: RunView): { said: string; icon: string } {
     if (waiting) return { said: `waiting: ${waiting.title}`, icon: "question" };
     return { said: `parked: ${row.parked_reason || "resume to carry on"}`, icon: "debug-pause" };
   }
+  if (row.status === "failed" && view.failure) return { said: `failed at ${view.failure.stage}`, icon: "error" };
   const icons: Record<string, string> = { done: "pass", failed: "error", abandoned: "circle-slash" };
   return { said: row.status, icon: icons[row.status] ?? "circle-outline" };
 }
@@ -149,10 +152,17 @@ export function runText(view: RunView): { label: string; description: string; to
   const lines = [`Run ${row.run_id}`, `Stage: ${row.phase || "?"}`, `Spent: $${row.spent_usd.toFixed(2)}`];
   if (row.branch) lines.push(`Branch: ${row.branch}`);
   if (row.worktree) lines.push(`Worktree: ${row.worktree}`);
+  if (view.failure) lines.push(`Failed at ${view.failure.stage}: ${view.failure.detail || "Spine recorded no reason"}`);
   if (waiting) lines.push(`Waiting on ${waiting.approval_id} (${waiting.kind}): ${waiting.reason}`);
   else if (row.parked_reason) lines.push(row.parked_reason);
   if (readOnly(row)) lines.push(`Started from a terminal: use \`orchestrator sdlc runs show ${row.run_id}\` there.`);
   return { label: row.intent_id || row.run_id, description: `${said} · $${row.spent_usd.toFixed(2)}`, tooltip: lines.join("\n"), icon };
+}
+
+/** The icon of one stage row. Spine records `ok`, `skipped` or `failed` (`autorun.StageStatus`). */
+export function stageIcon(status: string): string {
+  const icons: Record<string, string> = { ok: "check", failed: "error", skipped: "circle-slash" };
+  return icons[status] ?? "circle-outline";
 }
 
 /** D92: poll only while someone can see the runs and one of them is still alive. */
@@ -197,15 +207,25 @@ export function startMessage(intentId: string, branch: string, sha: string, repo
 export class BuildRuns {
   /** What each parked run waits on, by approval id: a poll does not fetch a review's diff again. */
   private readonly waits = new Map<string, Waiting | null>();
+  /** The failed stage of each failed run, by run id: a poll does not read its stages again (B173). */
+  private readonly failures = new Map<string, Stage | undefined>();
 
   constructor(private readonly options: BuildRunsOptions) {}
 
   async list(opts: { poll?: boolean } = {}): Promise<{ views: RunView[]; count: number; truncated: boolean; notShown: number }> {
     const { calls, repo } = this.guard();
-    if (!opts.poll) this.waits.clear();
+    if (!opts.poll) {
+      this.waits.clear();
+      this.failures.clear();
+    }
     const out = await calls.call("sdlc_builds", { repo_path: repo });
     const rows = (out.runs as RunRow[] | undefined) ?? [];
-    const views = await Promise.all(rows.map(async (row) => ({ row, waiting: await this.waitingOf(calls, repo, row) })));
+    const views = await Promise.all(
+      rows.map(async (row): Promise<RunView> => {
+        const failure = await this.failureOf(calls, repo, row);
+        return { row, waiting: await this.waitingOf(calls, repo, row), ...(failure ? { failure } : {}) };
+      }),
+    );
     return { views, count: Number(out.count ?? rows.length), truncated: out.truncated === true, notShown: Number(out.not_shown ?? 0) };
   }
 
@@ -353,6 +373,16 @@ export class BuildRuns {
     if (!fetched.ok) throw new Error(`git fetch failed: ${fetched.out}`);
     prompts.info(`Fetched ${row.branch}. Push it yourself when it is ready: git push -u origin ${row.branch}`);
     return true;
+  }
+
+  /** The last failed stage of a failed run, as Spine journalled it (`sdlc_builds` with `run_id`). */
+  private async failureOf(calls: SpineCalls, repo: string, row: RunRow): Promise<Stage | undefined> {
+    if (row.status !== "failed") return undefined;
+    if (this.failures.has(row.run_id)) return this.failures.get(row.run_id);
+    const out = await calls.call("sdlc_builds", { repo_path: repo, run_id: row.run_id });
+    const failed = ((out.stages as Stage[] | undefined) ?? []).filter((s) => s.status === "failed").at(-1);
+    this.failures.set(row.run_id, failed);
+    return failed;
   }
 
   private async waitingOf(calls: SpineCalls, repo: string, row: RunRow): Promise<Waiting | null> {

@@ -14,7 +14,7 @@
  */
 import { execFile } from "node:child_process";
 import * as vscode from "vscode";
-import { type BuildPrompts, type BuildRuns, type RunView, actionsFor, reviewsToAnnounce, runText, shouldPoll, shouldWatch, startMessage, type Stage } from "./builds";
+import { type BuildPrompts, type BuildRuns, type RunView, actionsFor, reviewsToAnnounce, runText, shouldPoll, shouldWatch, stageIcon, startMessage, type Stage } from "./builds";
 import { PlanMovedError } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
 import type { Opened, ReviewDiffs } from "./review-diff";
@@ -156,7 +156,7 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
       const item = new vscode.TreeItem(stage.stage, vscode.TreeItemCollapsibleState.None);
       item.description = stage.status;
       item.tooltip = stage.detail || undefined;
-      item.iconPath = new vscode.ThemeIcon(stage.status === "passed" ? "check" : stage.status === "failed" ? "error" : "circle-outline");
+      item.iconPath = new vscode.ThemeIcon(stageIcon(stage.status));
       return item;
     }
     const text = runText(node.view);
