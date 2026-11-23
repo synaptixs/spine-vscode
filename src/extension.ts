@@ -25,6 +25,7 @@ import { BuildRuns, nodeGit } from "./builds";
 import { type LmTools, localCalls, remoteCalls, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
 import { editorFeatures, mcpNotice, remoteServersSupported } from "./editor";
+import { FolderChoice } from "./folders";
 import { exposesTestHooks } from "./hooks";
 import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
@@ -45,6 +46,9 @@ export interface SpineApi {
   runs?: ReturnType<SpineRuns["api"]>;
 }
 
+/** The folder last chosen with Spine: Choose folder…, per window (B178, D123). */
+const CHOSEN_FOLDER = "spine.chosenFolder";
+
 /** Set once the D118 notice was shown in this editor, so it is shown once, not on every start. */
 const MCP_NOTICE_SHOWN = "spine.mcpNoticeShown";
 
@@ -55,11 +59,41 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
   const launch = () => spineLaunch(settings().get<string>("serverPath"), settings().get<string>("level"));
   const server = () => settings().get<string>("server")?.trim() || "local";
   const level = () => settings().get<string>("level")?.trim() || "plan";
-  const folder = () => vscode.workspace.workspaceFolders?.[0]?.uri;
-  const newClient = () =>
-    new SpineClient({ launch: launch(), isTrusted: () => vscode.workspace.isTrusted, cwd: folder()?.fsPath });
-
-  let client = newClient();
+  // Which folder a request uses (B178, D123, src/folders.ts): the file last in front, else the only
+  // folder, else the one chosen; with several open and none of those, a request says to choose.
+  const folderPaths = () => (vscode.workspace.workspaceFolders ?? []).filter((f) => f.uri.scheme === "file").map((f) => f.uri.fsPath);
+  const choice = new FolderChoice(context.workspaceState.get<string>(CHOSEN_FOLDER));
+  const activeFile = (editor = vscode.window.activeTextEditor) => (editor?.document.uri.scheme === "file" ? editor.document.uri.fsPath : undefined);
+  choice.focus(activeFile(), folderPaths());
+  /** The folder a request uses; throws `ChooseFolderError` when several are open and none is chosen. */
+  const folderPath = () => choice.require(folderPaths());
+  /** The same folder, or `undefined` where a surface should go quiet rather than refuse (lenses, the MCP definition). */
+  const softFolder = () => choice.current(folderPaths()).folder;
+  const folder = () => {
+    const f = softFolder();
+    return f ? vscode.Uri.file(f) : undefined;
+  };
+  // One Spine process per folder used: Spine loads its start folder's `.env` and never overwrites a
+  // key already set, so one process cannot serve two folders' keys (D123).
+  const clients = new Map<string, SpineClient>();
+  const clientFor = (cwd: string | undefined): SpineClient => {
+    const key = cwd ?? "";
+    let found = clients.get(key);
+    if (!found) {
+      found = new SpineClient({ launch: launch(), isTrusted: () => vscode.workspace.isTrusted, cwd });
+      clients.set(key, found);
+    }
+    return found;
+  };
+  const closeClients = (keep: (cwd: string) => boolean = () => false) => {
+    for (const [cwd, c] of clients) {
+      if (keep(cwd)) continue;
+      void c.close();
+      clients.delete(cwd);
+    }
+  };
+  /** The client of the folder in use, for calls whose `repo_path` is that same folder. */
+  const client = () => clientFor(softFolder());
   const definitionsChanged = new vscode.EventEmitter<void>();
   // The same .vsix runs in Cursor, which stubs the definition provider (SSPN-284, src/editor.ts).
   const editor = editorFeatures({
@@ -75,24 +109,24 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     return [definition];
   };
 
-  const doctor = () => client.callTool("doctor", {});
+  const doctor = () => clientFor(folderPath()).callTool("doctor", {});
 
-  const lenses = new SpineLenses(() => client, folder);
+  const lenses = new SpineLenses(client, folder);
   let remote: SpineCalls | undefined;
   const calls = (): SpineCalls => {
     const name = server();
-    if (name === "local") return localCalls(() => client);
+    if (name === "local") return localCalls(client);
     if (remote?.server !== name) remote = remoteCalls(name, lmTools);
     return remote;
   };
   const review = new PlanReview({
     calls,
     // Remotely the server reads only the checkouts its admin listed, by their path on the server.
-    repo: () => (server() === "local" ? folder()?.fsPath : settings().get<string>("serverRepo")?.trim() || undefined),
+    repo: () => (server() === "local" ? folderPath() : settings().get<string>("serverRepo")?.trim() || undefined),
     isTrusted: () => vscode.workspace.isTrusted,
     approverName: async () => {
-      const root = folder();
-      return root ? gitUserName(root.fsPath) : "";
+      const root = softFolder();
+      return root ? gitUserName(root) : "";
     },
   });
   // Builds run on this machine, with the person's own keys, at level `build` only (D21, SSPN-244).
@@ -103,27 +137,27 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     return undefined;
   };
   const builds = new BuildRuns({
-    calls: () => localCalls(() => client),
-    repo: () => folder()?.fsPath,
+    calls: () => localCalls(client),
+    repo: folderPath,
     isTrusted: () => vscode.workspace.isTrusted,
     deciderName: async () => {
-      const root = folder();
-      return root ? gitUserName(root.fsPath) : "";
+      const root = softFolder();
+      return root ? gitUserName(root) : "";
     },
   });
   const diffs = new ReviewDiffs(nodeGit);
   const runs = new SpineRuns({
     builds: () => builds,
     unavailable: buildBlocker,
-    folder: () => folder()?.fsPath,
+    folder: folderPath,
     onRestricted: showTrustNotice,
     diffs,
     state: context.workspaceState,
   });
   const plans = new SpinePlans(() => review, showTrustNotice, buildBlocker, (id) => runs.build(id));
   const planner = new RequirementPlanner({
-    calls: () => localCalls(() => client),
-    repo: () => folder()?.fsPath,
+    calls: () => localCalls(client),
+    repo: folderPath,
     isTrusted: () => vscode.workspace.isTrusted,
     blocker: () => requirementBlocker(server(), level()),
     open: async (id) => {
@@ -137,10 +171,50 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     refresh = setTimeout(() => lenses.invalidate(), 500);
   };
   const watcher = vscode.workspace.createFileSystemWatcher("**/*");
+  // With several folders open, the status bar says which one Spine uses, and choosing one is a click away.
+  const folderStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
+  folderStatus.command = "spine.chooseFolder";
+  const showFolder = () => {
+    const open = folderPaths();
+    if (open.length < 2) return folderStatus.hide();
+    const { folder: used, why } = choice.current(open);
+    folderStatus.text = used ? `$(folder) Spine: ${baseName(used)}` : "$(folder) Spine: choose a folder";
+    folderStatus.tooltip = used
+      ? `Spine reads ${used} and its .env (${why === "chosen" ? "chosen" : "the folder of the file in front"}). Click to choose another.`
+      : "Several folders are open: click to choose the one Spine reads.";
+    folderStatus.show();
+  };
+  const folderChanged = () => {
+    showFolder();
+    lenses.invalidate();
+    runs.invalidate();
+  };
+  showFolder();
 
   context.subscriptions.push(
     definitionsChanged,
-    { dispose: () => void client.close() },
+    { dispose: () => closeClients() },
+    folderStatus,
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (choice.focus(activeFile(editor), folderPaths())) folderChanged();
+    }),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      const open = folderPaths();
+      closeClients((cwd) => cwd === "" || open.includes(cwd));
+      folderChanged();
+    }),
+    vscode.commands.registerCommand("spine.chooseFolder", async () => {
+      const open = folderPaths();
+      if (!open.length) return void vscode.window.showInformationMessage("Spine: open a folder first.");
+      const picked = await vscode.window.showQuickPick(
+        open.map((f) => ({ label: baseName(f), description: f, path: f })),
+        { title: "Spine: Choose folder", placeHolder: "The checkout Spine reads, with its .env" },
+      );
+      if (!picked) return;
+      choice.choose(picked.path);
+      await context.workspaceState.update(CHOSEN_FOLDER, picked.path);
+      folderChanged();
+    }),
     ...(editor.mcpDefinitions
       ? [
           vscode.lm.registerMcpServerDefinitionProvider("spine.mcp", {
@@ -160,8 +234,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
         runs.invalidate();
       }
       if (!["spine.serverPath", "spine.level", "spine.server"].some((s) => event.affectsConfiguration(s))) return;
-      void client.close();
-      client = newClient();
+      closeClients();
       definitionsChanged.fire();
       lenses.invalidate();
     }),
@@ -241,6 +314,9 @@ const lmTools: LmTools = {
   editor: vscode.env.appName,
   supported: () => remoteServersSupported(typeof vscode.lm?.invokeTool === "function", () => vscode.commands.getCommands(true)),
 };
+
+/** The last segment of a folder's path, as the status bar and the pick show it. */
+const baseName = (folder: string) => folder.split(/[\\/]/).pop() || folder;
 
 function showTrustNotice(): void {
   void vscode.window.showWarningMessage(TRUST_NOTICE, "Manage Workspace Trust").then((choice) => {

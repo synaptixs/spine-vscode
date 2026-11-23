@@ -337,6 +337,31 @@ async function main() {
       },
     ],
     [
+      "multiroot",
+      async () => {
+        // B178 (D123): two folders, the first without a plan; a workspace file opens both.
+        const empty = await planFixture();
+        const planned = await planFixture();
+        fs.rmSync(path.join(empty.root, ".spine"), { recursive: true, force: true });
+        const workspace = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "spine-vsx-multiroot-")), "two.code-workspace");
+        fs.writeFileSync(workspace, JSON.stringify({ folders: [{ path: empty.root }, { path: planned.root }] }, null, 2));
+        try {
+          await launch(
+            "multiroot",
+            process.env.SPINE_SERVER_PATH ? { "spine.serverPath": process.env.SPINE_SERVER_PATH } : {},
+            false,
+            { SPINE_EMPTY_FOLDER: empty.root, SPINE_PLANNED_FOLDER: planned.root, SPINE_PLAN_ID: planned.intentId },
+            {},
+            workspace,
+          );
+        } finally {
+          empty.dispose();
+          planned.dispose();
+          fs.rmSync(path.dirname(workspace), { recursive: true, force: true });
+        }
+      },
+    ],
+    [
       "requirements",
       async () => {
         const reqs = requirementFixture([REQUIREMENT_ID, "CART-10"]);

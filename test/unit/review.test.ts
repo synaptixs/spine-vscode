@@ -213,6 +213,17 @@ describe("PlanReview", () => {
       assert.deepEqual(remote.approvals(), []);
     });
 
+    it("refuses a plan opened in another folder than Spine now points at (B178, D123)", async () => {
+      const spine = fakeSpine();
+      let repo = REPO;
+      const r = new PlanReview({ calls: () => spine.calls, repo: () => repo, isTrusted: () => true, approverName: async () => "Ada" });
+      const view = await r.open(ID);
+      assert.equal(view.repo, REPO);
+      repo = "/work/other";
+      await assert.rejects(r.decide(view, { reject: false }), new RegExp(`opened in ${REPO}, and Spine now points at /work/other: open it again`));
+      assert.deepEqual(spine.approvals(), []);
+    });
+
     it("says a decision was recorded when the plan cannot be reopened after it (review item 6)", async () => {
       const spine = fakeSpine({ failReopen: true });
       const { r } = review(spine);

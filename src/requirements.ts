@@ -132,7 +132,7 @@ export class RequirementPlanner {
     const planned = String(out.intent_id ?? "");
     if (!planned) throw new Error(`Spine planned nothing from ${source}`);
     for (const w of (out.warnings as string[] | undefined) ?? []) prompts.warn(`Spine: ${w}`);
-    prompts.info(`Spine planned ${planned} from ${source}: ${spendLine(spent, cached, estimated)}.`);
+    prompts.info(`Spine planned ${planned} from ${source} in ${path.basename(repo)} (${repo}): ${spendLine(spent, cached, estimated)}.`);
     await this.options.open(planned);
     return { intentId: planned, spentUsd: spent, cached, estimated };
   }

@@ -38,6 +38,8 @@ export interface PlanView {
   remote: boolean;
   /** Locally, who the record will name; empty on a remote server. */
   approver: string;
+  /** The checkout (or, remotely, the server's path) the plan was read from (B178). */
+  repo: string;
 }
 
 export interface Listed {
@@ -105,6 +107,7 @@ export class PlanReview {
       server: calls.server,
       remote: calls.remote,
       approver,
+      repo,
     };
   }
 
@@ -120,6 +123,9 @@ export class PlanReview {
     if (calls.server !== view.server) {
       throw new Error(`${view.intentId} was opened on ${view.server}, and Spine is now ${calls.server}: open it again`);
     }
+    // A window with several folders moves between checkouts (B178): a plan read in one must not be
+    // decided in another, where the same id may name another plan or none.
+    if (repo !== view.repo) throw new Error(`${view.intentId} was opened in ${view.repo}, and Spine now points at ${repo}: open it again`);
     const answer = await calls.call("sdlc_approve", {
       repo_path: repo,
       intent_id: view.intentId,

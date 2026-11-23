@@ -124,6 +124,14 @@ describe("Plan from requirement (SSPN-246)", () => {
       assert.match(asked.infos.at(-1) ?? "", /CART-9.*\$0\b.*cached/);
     });
 
+    it("says which folder the plan was made in (B178, D123)", async () => {
+      const spine = fakeSpine({ cached: true });
+      const { p } = planner(spine);
+      const { p: ask, asked } = prompts();
+      await p.plan(SOURCE, ask);
+      assert.match(asked.infos.at(-1) ?? "", /in shop \(\/work\/shop\)/);
+    });
+
     it("asks first, spends only after the yes, and shows what it spent (D105)", async () => {
       const spine = fakeSpine({ cost: 0.0123 });
       const { p, opened } = planner(spine);

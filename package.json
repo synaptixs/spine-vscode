@@ -44,6 +44,10 @@
         "title": "Spine: Doctor (check the server)"
       },
       {
+        "command": "spine.chooseFolder",
+        "title": "Spine: Choose folder…"
+      },
+      {
         "command": "spine.showCallers",
         "title": "Spine: Show callers",
         "enablement": "false"
