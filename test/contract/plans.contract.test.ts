@@ -97,7 +97,7 @@ describe("plan review against the real Spine (SSPN-243)", () => {
     assert.equal(moved.fresh, false);
     assert.equal(moved.derivedAt, before.derivedAt);
     assert.notEqual(moved.derivedNow, moved.derivedAt);
-    const replanned = await r.replanFromKept(fixture.intentId);
+    const replanned = await r.replanFromKept(fixture.intentId, fixture.root);
     assert.equal(replanned.fresh, true, `${replanned.derivedAt} vs ${replanned.derivedNow}`);
   });
 
@@ -108,7 +108,7 @@ describe("plan review against the real Spine (SSPN-243)", () => {
     const file = specFile(fixture.root, fixture.intentId);
     const spec = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown> & { title: string };
     spec.title = `${spec.title} (narrowed in the contract test)`;
-    const after = await r.replan(fixture.intentId, spec);
+    const after = await r.replan(fixture.intentId, spec, fixture.root);
     assert.ok(after.document.includes("(narrowed in the contract test)"), "the plan is rendered from the edited spec");
     assert.equal(after.state, "stale");
     assert.equal(fs.readFileSync(fixture.planFile, "utf8"), after.document, "Spine wrote the plan file");

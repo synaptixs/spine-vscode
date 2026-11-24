@@ -166,7 +166,7 @@ describe("re-planning from an edited spec (B180, D127)", () => {
     const spine = fakeSpine();
     const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
     await r.decide(await r.open(ID), { reject: false });
-    const after = await r.replan(ID, { intent_id: ID, title: "Narrower scope" });
+    const after = await r.replan(ID, { intent_id: ID, title: "Narrower scope" }, REPO);
     const sent = spine.state.seen.find((s) => s.tool === "sdlc_plan");
     assert.deepEqual(sent?.args, { repo_path: REPO, spec: { intent_id: ID, title: "Narrower scope" } });
     assert.match(after.document, /Narrower scope/);
@@ -176,27 +176,53 @@ describe("re-planning from an edited spec (B180, D127)", () => {
   it("refuses a spec that names another intent: it would write another plan", async () => {
     const spine = fakeSpine();
     const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
-    await assert.rejects(r.replan(ID, { intent_id: "INT-8", title: "x" }), /names intent INT-8, not INT-7/);
+    await assert.rejects(r.replan(ID, { intent_id: "INT-8", title: "x" }, REPO), /names intent INT-8, not INT-7/);
     assert.equal(spine.state.seen.length, 0);
   });
 
   it("refuses on a remote server: the spec file is on this machine", async () => {
     const spine = fakeSpine({ remote: true });
     const r = new PlanReview({ calls: () => spine.calls, repo: () => "/srv/shop", isTrusted: () => true, approverName: async () => "" });
-    await assert.rejects(r.replan(ID, { intent_id: ID, title: "x" }), /on the local server only/);
+    await assert.rejects(r.replan(ID, { intent_id: ID, title: "x" }, "/srv/shop"), /on the local server only/);
     assert.equal(spine.state.seen.length, 0);
   });
 
   it("shows Spine's own refusal of an invalid spec", async () => {
     const spine = fakeSpine();
     const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
-    await assert.rejects(r.replan(ID, { intent_id: ID }), /spec\.title: Field required/);
+    await assert.rejects(r.replan(ID, { intent_id: ID }, REPO), /spec\.title: Field required/);
+  });
+
+  it("re-plans in the spec's own folder, on that folder's Spine, whatever folder is in front (B178, review of #14)", async () => {
+    const spine = fakeSpine();
+    const via: (string | undefined)[] = [];
+    const r = new PlanReview({
+      calls: (repo?: string) => ({ ...spine.calls, call: (t, a, o) => (via.push(repo), spine.calls.call(t, a, o)) }),
+      repo: () => "/work/other",
+      isTrusted: () => true,
+      approverName: async () => "Ada",
+    });
+    const after = await r.replan(ID, { intent_id: ID, title: "Narrower scope" }, REPO);
+    assert.deepEqual(
+      spine.state.seen.map((s) => [s.tool, s.args.repo_path]),
+      [["sdlc_plan", REPO], ["sdlc_plan_document", REPO]],
+    );
+    assert.deepEqual(via, [REPO, REPO], "each call went to the Spine started in the spec's folder, with its .env");
+    assert.equal(after.repo, REPO);
+  });
+
+  it("a spec whose intent_id was deleted is re-planned under its own id, not as `spec` (review of #14)", async () => {
+    const spine = fakeSpine();
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
+    await r.replan(ID, { title: "Narrower scope" }, REPO);
+    const sent = spine.state.seen.find((s) => s.tool === "sdlc_plan");
+    assert.deepEqual(sent?.args.spec, { title: "Narrower scope", intent_id: ID });
   });
 
   it("calls nothing in Restricted Mode", async () => {
     const spine = fakeSpine();
     const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => false, approverName: async () => "Ada" });
-    await assert.rejects(r.replan(ID, { intent_id: ID, title: "x" }), RestrictedWorkspaceError);
+    await assert.rejects(r.replan(ID, { intent_id: ID, title: "x" }, REPO), RestrictedWorkspaceError);
     assert.equal(spine.state.seen.length, 0);
   });
 });
@@ -501,5 +527,31 @@ describe("PlanReview", () => {
       assert.match(s.tooltip, /signed in through VS Code/);
       assert.match(s.tooltip, /signed record, not a gate/);
     });
+  });
+});
+
+describe("which folder's Spine a plan call reaches (B178, review of #14)", () => {
+  it("opens, lists and decides on the Spine of the folder each call names", async () => {
+    const spine = fakeSpine();
+    const via: (string | undefined)[] = [];
+    const r = new PlanReview({
+      calls: (repo?: string) => ({ ...spine.calls, call: (t, a, o) => (via.push(repo), spine.calls.call(t, a, o)) }),
+      repo: () => REPO,
+      isTrusted: () => true,
+      approverName: async () => "Ada",
+    });
+    await r.list();
+    await r.decide(await r.open(ID), { reject: false });
+    assert.ok(via.length >= 4 && via.every((v) => v === REPO), `every call bound to ${REPO}: ${JSON.stringify(via)}`);
+  });
+
+  it("a plan opened in one folder is not built from another (the same check a decision makes)", async () => {
+    const spine = fakeSpine();
+    let repo = REPO;
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => repo, isTrusted: () => true, approverName: async () => "Ada" });
+    const view = await r.open(ID);
+    r.assertHere(view);
+    repo = "/work/other";
+    assert.throws(() => r.assertHere(view), /opened in \/work\/shop, and Spine now points at \/work\/other: open it again/);
   });
 });

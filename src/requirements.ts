@@ -43,7 +43,8 @@ export interface Planned {
 }
 
 export interface RequirementPlannerOptions {
-  calls: () => SpineCalls;
+  /** The Spine of folder `repo`, which reads that folder's `.env` and key (B178). */
+  calls: (repo?: string) => SpineCalls;
   repo: () => string | undefined;
   isTrusted: () => boolean;
   /** Why this window cannot plan from a requirement (server, level), or `undefined`. */
@@ -103,14 +104,18 @@ function whereRead(answer: Record<string, unknown>): string {
 export class RequirementPlanner {
   constructor(private readonly options: RequirementPlannerOptions) {}
 
-  /** Plan `source` and open it for review; `undefined` when the person stopped before a plan. */
-  async plan(source: string, prompts: RequirementPrompts): Promise<Planned | undefined> {
+  /**
+   * Plan `source` into folder `at` (a requirement file's own folder), else the folder in use, and
+   * open it for review; `undefined` when the person stopped before a plan.
+   */
+  async plan(source: string, prompts: RequirementPrompts, at?: string): Promise<Planned | undefined> {
     if (!this.options.isTrusted()) throw new RestrictedWorkspaceError();
     const blocked = this.options.blocker();
     if (blocked) throw new Error(blocked);
-    const repo = this.options.repo();
+    const repo = at ?? this.options.repo();
     if (!repo) throw new Error("open a folder first: a plan is written into its checkout");
-    const calls = this.options.calls();
+    // Bound now: the folder in front may move while a pick is open, and the key must not move with it.
+    const calls = this.options.calls(repo);
     const plan = async (intentId?: string) => {
       try {
         return await calls.call("sdlc_plan", { repo_path: repo, source, ...(intentId ? { intent_id: intentId } : {}) }, { timeoutMs: PLAN_TIMEOUT_MS });

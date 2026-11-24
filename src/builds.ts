@@ -115,7 +115,8 @@ export interface BuildPrompts {
 }
 
 export interface BuildRunsOptions {
-  calls: () => SpineCalls;
+  /** The Spine of folder `repo`: each folder has its own process, with its own `.env` (B178). */
+  calls: (repo?: string) => SpineCalls;
   repo: () => string | undefined;
   isTrusted: () => boolean;
   deciderName: () => Promise<string>;
@@ -427,7 +428,13 @@ export class BuildRuns {
     if (row.status !== "failed") return {};
     const known = this.failures.get(row.run_id);
     if (known) return known;
-    const out = await calls.call("sdlc_builds", { repo_path: repo, run_id: row.run_id });
+    let out: Record<string, unknown>;
+    try {
+      out = await calls.call("sdlc_builds", { repo_path: repo, run_id: row.run_id });
+    } catch {
+      // One run's stages failing to read must not blank the whole view; the next refresh asks again.
+      return {};
+    }
     const found = {
       failure: ((out.stages as Stage[] | undefined) ?? []).filter((s) => s.status === "failed").at(-1),
       testLog: ((out.test_runs as TestRun[] | undefined) ?? []).at(-1)?.path,
@@ -477,10 +484,10 @@ export class BuildRuns {
 
   private guard(): { calls: SpineCalls; repo: string } {
     if (!this.options.isTrusted()) throw new RestrictedWorkspaceError();
-    const calls = this.options.calls();
-    if (calls.remote) throw new Error(`builds run on this machine only, not on ${calls.server}: set spine.server to local`);
+    const server = this.options.calls();
+    if (server.remote) throw new Error(`builds run on this machine only, not on ${server.server}: set spine.server to local`);
     const repo = this.options.repo();
     if (!repo) throw new Error("open a folder to build its plans");
-    return { calls, repo };
+    return { calls: this.options.calls(repo), repo };
   }
 }
