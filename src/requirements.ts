@@ -93,12 +93,19 @@ function spendLine(spent: number, cached: boolean, estimated: boolean): string {
   return `spent $${spent.toFixed(4)}${estimated ? " (estimated)" : ""}`;
 }
 
-/** B178: which checkout's `.env` and which site a refused plan read (Spine 3.71); "" from an older Spine. */
-function whereRead(answer: Record<string, unknown>): string {
+/** The setting a source's site comes from, for the sources that have one. */
+const SITE_OF: Record<string, string> = { jira: "Jira", confluence: "Confluence" };
+
+/**
+ * B178: which checkout a refused plan was made in, and for a Jira or Confluence source which site
+ * its `.env` names (Spine 3.71); "" from an older Spine. A file needs no site, so none is said.
+ */
+function whereRead(answer: Record<string, unknown>, source: string): string {
   if (typeof answer.checkout !== "string" || !answer.checkout) return "";
-  const env = path.join(answer.checkout, ".env");
+  const kind = SITE_OF[source.split("://")[0].toLowerCase()];
   const site = typeof answer.source_site === "string" ? answer.source_site : "";
-  return site ? ` (Spine read ${env}; the site is ${site})` : ` (Spine read ${env}, which names no site for it)`;
+  if (!kind) return ` (Spine planned in ${answer.checkout})`;
+  return site ? ` (Spine planned in ${answer.checkout}; the site is ${site})` : ` (Spine planned in ${answer.checkout}, whose .env names no ${kind} site)`;
 }
 
 export class RequirementPlanner {
@@ -120,7 +127,7 @@ export class RequirementPlanner {
       try {
         return await calls.call("sdlc_plan", { repo_path: repo, source, ...(intentId ? { intent_id: intentId } : {}) }, { timeoutMs: PLAN_TIMEOUT_MS });
       } catch (err) {
-        throw err instanceof SpineRefusal ? new SpineRefusal(`${err.message}${whereRead(err.answer)}`, err.answer) : err;
+        throw err instanceof SpineRefusal ? new SpineRefusal(`${err.message}${whereRead(err.answer, source)}`, err.answer) : err;
       }
     };
 

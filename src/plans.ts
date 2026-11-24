@@ -11,7 +11,7 @@ import * as fs from "node:fs";
 import * as vscode from "vscode";
 import { PlanMovedError } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
-import { idOfPlanPath, planFile, planPath, type PlanReview, type PlanView, type Prompts, specFile, staleMessage, statusText } from "./review";
+import { idOfPlanPath, planFile, planPath, type PlanReview, type PlanView, type Prompts, specFile, statusText } from "./review";
 
 export const SCHEME = "spine-plan";
 const CAN_DECIDE = "spine.planCanDecide";
@@ -222,20 +222,12 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     // Builds run in the folder in use: a plan approved in another folder is not this folder's (B178).
     this.review().assertHere(view);
     // B182: the build derives the plan again; one from another commit parks at its gate.
-    if (view.fresh === false) {
-      const choice = await vscode.window.showWarningMessage(
-        `${staleMessage(view)} A build now would park at the plan gate.`,
-        { modal: true },
-        "Re-plan ($0)",
-        "Build anyway",
-      );
-      if (choice === "Re-plan ($0)") {
-        this.store(await this.review().replanFromKept(view.intentId, view.repo));
-        void vscode.window.showInformationMessage(`Spine: re-planned ${view.intentId} for $0. Read it, approve it, then build.`);
-        return;
-      }
-      if (choice !== "Build anyway") return;
+    const go = await this.review().beforeBuild(view, prompts);
+    if (go.replanned) {
+      this.store(go.replanned);
+      void vscode.window.showInformationMessage(`Spine: re-planned ${view.intentId} for $0. Read it, approve it, then build.`);
     }
+    if (!go.build) return;
     await this.onBuild(view.intentId);
   }
 

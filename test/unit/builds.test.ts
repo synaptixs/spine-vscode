@@ -15,6 +15,7 @@ import {
   stageIcon,
   shouldWatch,
   startMessage,
+  testOutputPath,
   type Waiting,
 } from "../../src/builds";
 
@@ -99,12 +100,15 @@ describe("which actions a run offers (D86, D89–D91)", () => {
 
   it("a run whose process is gone offers Resume and Discard (D78, D124)", () => {
     assert.deepEqual(actionsFor(view({ status: "running", alive: false })), ["resume", "discard", "openPlan"]);
-    assert.deepEqual(actionsFor(view({ status: "failed", alive: false })), ["resume", "discard", "openPlan"]);
+  });
+
+  it("a failed run offers Resume, not Discard: Spine leaves a failed run as it ended (review of spine#700)", () => {
+    assert.deepEqual(actionsFor(view({ status: "failed", alive: false })), ["resume", "openPlan"]);
   });
 
   it("a failed run with a kept test log offers Open test output (B181)", () => {
     const v: RunView = { ...view({ status: "failed", alive: false }), testLog: "/state/runs/r1/run-tests-6.txt" };
-    assert.deepEqual(actionsFor(v), ["resume", "discard", "openTestOutput", "openPlan"]);
+    assert.deepEqual(actionsFor(v), ["resume", "openTestOutput", "openPlan"]);
     const terminal: RunView = { ...view({ status: "failed", alive: false, from_editor: false }), testLog: "/x/run-tests-1.txt" };
     assert.deepEqual(actionsFor(terminal), ["openTestOutput", "openPlan"], "reading a log changes nothing, so a terminal run offers it too");
   });
@@ -195,7 +199,7 @@ describe("the start dialog", () => {
 
 /** A fake Spine with 3.67.1's three build tools: decisions behave as the real ones do. */
 function fakeSpine(
-  opts: { rows?: RunRow[]; waits?: Record<string, Waiting | null>; stages?: Record<string, Stage[]>; testRuns?: Record<string, { n: number; path: string; bytes: number }[]>; unreadable?: string[]; remote?: boolean; diffs?: Record<string, { diff: string; bytes: number; truncated: boolean }> } = {},
+  opts: { rows?: RunRow[]; waits?: Record<string, Waiting | null>; stages?: Record<string, Stage[]>; testRuns?: Record<string, { n: number; path: string; bytes: number }[]>; unreadable?: string[]; noDiscard?: boolean; remote?: boolean; diffs?: Record<string, { diff: string; bytes: number; truncated: boolean }> } = {},
 ) {
   const seen: { tool: string; args: Record<string, unknown> }[] = [];
   const decided = new Set<string>();
@@ -232,6 +236,7 @@ function fakeSpine(
       decided.add(w.approval_id);
       return { decision: args.approve ? "APPROVED" : "REJECTED", decided_by: args.decided_by, next: "resume" };
     }
+    if (tool === "sdlc_build" && args.action === "discard" && opts.noDiscard) return { error: "unknown action 'discard': use start, resume or cancel" };
     if (tool === "sdlc_build") return { run_id: args.run_id || "new-run", status: "running", pid: 42 };
     throw new Error(`unexpected tool ${tool}`);
   }
@@ -444,10 +449,29 @@ describe("BuildRuns against a fake Spine", () => {
   it("discards nothing when not confirmed, and refuses a live run or a terminal's", async () => {
     const spine = fakeSpine({ rows: [] });
     const { p } = prompts({ confirm: false });
-    assert.equal(await runs(spine).discard(view({ status: "failed", alive: false }), p), false);
+    assert.equal(await runs(spine).discard(view({ status: "parked", alive: false }), p), false);
     await assert.rejects(runs(spine).discard(view({ alive: true }), prompts().p), /still running: cancel it/);
     await assert.rejects(runs(spine).discard(view({ status: "failed", alive: false, from_editor: false }), prompts().p), /started from a terminal/);
+    await assert.rejects(runs(spine).discard(view({ status: "failed", alive: false }), prompts().p), /leaves a failed run as it ended/);
     assert.equal(spine.of("sdlc_build").length, 0);
+  });
+
+  it("Discard on a Spine older than 3.71 says which Spine it needs (review of #15)", async () => {
+    const spine = fakeSpine({ noDiscard: true });
+    await assert.rejects(runs(spine).discard(view({ status: "parked", alive: false }), prompts().p), /Discard needs Spine 3\.71 or newer/);
+  });
+
+  it("a dead parked run (its own tests failing) carries its test log too (review of #15)", async () => {
+    const parked = row({ run_id: "p1", status: "parked", alive: false, approval_id: "ao" });
+    const spine = fakeSpine({ rows: [parked], waits: { p1: waiting("own_tests", { approval_id: "ao" }) }, testRuns: { p1: [{ n: 1, path: "/a/run-tests-1.txt", bytes: 3 }] } });
+    const listed = await runs(spine).list();
+    assert.equal(listed.views[0].testLog, "/a/run-tests-1.txt");
+  });
+
+  it("a test log opens only from an absolute path (review of #15)", () => {
+    assert.equal(testOutputPath({ ...view({ status: "failed" }), testLog: "/a/run-tests-1.txt" }), "/a/run-tests-1.txt");
+    assert.equal(testOutputPath({ ...view({ status: "failed" }), testLog: "runs/r1/run-tests-1.txt" }), undefined);
+    assert.equal(testOutputPath(view({ status: "failed" })), undefined);
   });
 
   it("a failed run carries the newest kept test log (B181)", async () => {

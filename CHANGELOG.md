@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Fixes from a field report, on the same Spine 3.68.0.
+Fixes from a field report. The folder, failed-stage and Edit spec fixes work on Spine 3.68.0;
+Discard, Open test output, the stale-plan warning and the site and checkout on a refusal need the
+fields Spine 3.71.0 adds.
 
 - The right folder (SSPN-404): with several folders open, Spine used to read the first one, and
   that folder's `.env`, whatever you were working in, so planning from a Jira ticket failed. It
@@ -21,18 +23,21 @@ Fixes from a field report, on the same Spine 3.68.0.
   $0, with no model. An approval of the old text then no longer holds, and you decide again. A spec
   whose `intent_id` was deleted stays this plan's.
   **Reveal plan file** shows the plan's file in the Explorer.
-- A way out of a dead run (SSPN-405): a run whose process is gone and that has not finished now
-  offers **Discard run…** beside Resume. A build the plan gate refused used to offer only Resume,
+- A way out of a dead run (SSPN-405): a running or parked run whose process is gone now offers
+  **Discard run…** beside Resume (a failed run is left as it ended: build its plan again). A build the plan gate refused used to offer only Resume,
   and it blocked every new build of its plan. Discard rejects what it waits on, marks it abandoned,
-  and keeps its branch and worktree. Needs Spine with `sdlc_build action=discard`.
+  and keeps its branch and worktree. On an older Spine it says it needs Spine 3.71.
 - Which tests failed (SSPN-407): a failed build's tooltip carries Spine's reason, which now names the
-  failing tests. **Open test output** opens the last test run's full output. Spine now keeps run
+  failing tests. **Open test output** opens the last test run's full output, on a failed run and on
+a dead run parked on its own failing tests. Spine now keeps run
   logs where a restart does not clear them.
-- A plan from another commit (SSPN-408): Approve warns when the plan was derived at another commit
-  or from a dirty tree, because the build would refuse that approval. It offers **Re-plan ($0)**,
-  and Build warns the same way. The status tooltip says so too.
-- "Spine planned …" names the Jira or Confluence site. A refusal names the checkout whose `.env`
-  Spine read (SSPN-404).
+- A plan from another commit (SSPN-408): Approve and Build ask Spine again, then warn when the plan
+  was derived at another commit (the build would refuse that approval and park) or on a tree with
+  uncommitted changes (a build uses only committed code). They offer **Re-plan ($0)**, except on a
+  dirty tree, where re-planning cannot help: commit or stash first. Approve anyway still names who is
+  approving. The status tooltip says so too.
+- "Spine planned …" names the Jira or Confluence site. A refusal names the checkout Spine planned
+  in, and for a Jira or Confluence source whether its `.env` names a site (SSPN-404).
 
 ## 0.3.0 — 2026-10-31
 

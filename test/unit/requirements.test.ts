@@ -142,10 +142,25 @@ describe("Plan from requirement (SSPN-246)", () => {
       assert.match(asked.infos.at(-1) ?? "", /from .* \(acme\.atlassian\.net\) in shop/);
     });
 
-    it("a refusal says which checkout's .env and which site Spine read (B178)", async () => {
+    it("a refused Jira plan says which checkout's .env Spine used, and that it names no Jira site (B178)", async () => {
       const spine = fakeSpine({ refuse: { error: "Jira not configured (need JIRA_BASE_URL / EMAIL / API_TOKEN)", checkout: "/work/docs", source_site: "" } });
       const { p } = planner(spine);
-      await assert.rejects(p.plan(SOURCE, prompts().p), /Jira not configured.*read \/work\/docs\/\.env, which names no site for it/s);
+      const err = await p.plan("jira://CART-9", prompts().p).then(() => undefined, (e: Error) => e);
+      assert.match(err?.message ?? "", /Jira not configured.*planned in \/work\/docs, whose \.env names no Jira site/s);
+      assert.equal((err as SpineRefusal).answer.checkout, "/work/docs", "Spine's answer is kept");
+    });
+
+    it("a refused file plan names the checkout and says nothing of a site, which a file does not need (review of #15)", async () => {
+      const spine = fakeSpine({ refuse: { error: "no API key for the intake model", checkout: "/work/docs", source_site: "" } });
+      const { p } = planner(spine);
+      const err = await p.plan(SOURCE, prompts().p).then(() => undefined, (e: Error) => e);
+      assert.match(err?.message ?? "", /no API key for the intake model \(Spine planned in \/work\/docs\)$/);
+    });
+
+    it("a refused Confluence plan names its site when there is one (review of #15)", async () => {
+      const spine = fakeSpine({ refuse: { error: "page not found", checkout: "/work/docs", source_site: "wiki.acme.test" } });
+      const { p } = planner(spine);
+      await assert.rejects(p.plan("confluence://123", prompts().p), /page not found \(Spine planned in \/work\/docs; the site is wiki\.acme\.test\)$/);
     });
 
     it("says which folder the plan was made in (B178, D123)", async () => {

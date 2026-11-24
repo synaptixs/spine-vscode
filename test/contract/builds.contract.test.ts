@@ -154,7 +154,7 @@ describe("builds against the real Spine (SSPN-244)", function () {
     assert.deepEqual(actionsFor(terminal), ["openPlan"]);
     const editor = await viewOf("editor0000000001");
     assert.equal(editor.row.from_editor, true);
-    assert.deepEqual(actionsFor(editor), ["resume", "discard", "openPlan"]);
+    assert.deepEqual(actionsFor(editor), ["resume", "openPlan"], "a failed run is left as it ended (spine#700 review)");
   });
 
   it("discards a dead plan-gate park, and the plan builds again (B179, D124, Spine 3.71)", async () => {

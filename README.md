@@ -56,7 +56,10 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   greyed out when you may not decide; the status line's tooltip says why. A rejection needs a note.
   A decision covers exactly the text you were shown: if the plan changed since you opened it,
   nothing is recorded and the plan reopens. Locally you approve under `git config user.name`, and
-  the extension shows that name before the call.
+  the extension shows that name before the call. Approve and Build first ask Spine whether the
+  plan is still the checkout's (Spine 3.71): one derived at another commit, which the build would
+  refuse, or on uncommitted changes, which a build leaves out, warns first and offers **Re-plan
+  ($0)** where that helps.
   The document is named as Spine names the file (`<id>-build.md`) and is read-only here: **Edit
   spec…** in its title bar opens the spec Spine keeps beside it (`.spine/plans/<id>-spec.json`), and
   saving it re-plans for $0, with no model (an earlier decision then reads as changed). **Reveal plan
@@ -95,8 +98,12 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   - A finished build offers **Fetch into my checkout…**: its branch is fetched into your folder as a
     new local branch. Your current branch and files are not touched, an existing branch of that name
     is never overwritten, and nothing is pushed: push it yourself.
-  - A build whose process has gone offers **Resume…**. Runs started from a terminal are shown, and
-    are decided in the terminal (`orchestrator sdlc runs`).
+  - A build whose process has gone offers **Resume…**, and a running or parked one also **Discard
+    run…** (Spine 3.71): what it waits on is rejected, it reads abandoned, and its branch and worktree
+    stay, so its plan can be built again. A failed build is left as it ended. Runs started from a
+    terminal are shown, and are decided in the terminal (`orchestrator sdlc runs`).
+  - A failed build, or a dead one parked on its own failing tests, offers **Open test output**
+    (Spine 3.71): the last test run's full output. Its tooltip names the failing tests.
   - The extension tells its Spine server where runs are kept (`TMPDIR`, `SPINE_RUN_STATE`,
     `SPINE_RUN_ARTIFACTS`), so the panel and `orchestrator sdlc runs` in a terminal see the same runs.
 
