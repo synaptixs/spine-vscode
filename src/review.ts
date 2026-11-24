@@ -14,6 +14,7 @@
  * - Restricted Mode calls nothing, over either transport (D12).
  */
 import { execFile } from "node:child_process";
+import * as path from "node:path";
 import { PlanMovedError, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
 
@@ -38,6 +39,8 @@ export interface PlanView {
   remote: boolean;
   /** Locally, who the record will name; empty on a remote server. */
   approver: string;
+  /** The checkout (or, remotely, the server's path) the plan was read from (B178). */
+  repo: string;
 }
 
 export interface Listed {
@@ -55,7 +58,11 @@ export interface Prompts {
 }
 
 export interface PlanReviewOptions {
-  calls: () => SpineCalls;
+  /**
+   * The Spine to call. Locally, `repo` names the folder whose own Spine process answers: Spine reads
+   * its start folder's `.env`, so a call about one folder must reach that folder's process (B178).
+   */
+  calls: (repo?: string) => SpineCalls;
   repo: () => string | undefined;
   isTrusted: () => boolean;
   approverName: () => Promise<string>;
@@ -69,15 +76,14 @@ export class PlanReview {
   constructor(private readonly options: PlanReviewOptions) {}
 
   async list(): Promise<{ plans: Listed[]; count: number; truncated: boolean }> {
-    const calls = this.options.calls();
-    const repo = this.guard(calls);
+    const { calls, repo } = this.bound();
     const out = await calls.call("sdlc_plan_document", { repo_path: repo });
     return { plans: (out.plans as Listed[] | undefined) ?? [], count: Number(out.count ?? 0), truncated: out.truncated === true };
   }
 
-  async open(intentId: string): Promise<PlanView> {
-    const calls = this.options.calls();
-    const repo = this.guard(calls);
+  /** Read a plan from `at`, else from the folder in use. */
+  async open(intentId: string, at?: string): Promise<PlanView> {
+    const { calls, repo } = this.bound(at);
     const out = await calls.call("sdlc_plan_document", { repo_path: repo, intent_id: intentId });
     const digest = typeof out.digest === "string" ? out.digest : "";
     let canDecide = out.can_approve === true;
@@ -105,21 +111,18 @@ export class PlanReview {
       server: calls.server,
       remote: calls.remote,
       approver,
+      repo,
     };
   }
 
   /** Decide on exactly the plan in `view`; returns the plan as it now stands. */
   async decide(view: PlanView, decision: { reject: boolean; note?: string }): Promise<PlanView> {
-    const calls = this.options.calls();
-    const repo = this.guard(calls);
+    const { calls, repo } = this.assertHere(view);
     // Spine skips the check on an empty `expected_digest`: deciding then would bind nothing.
     if (!view.digest) throw new Error(NO_DIGEST);
     if (!view.canDecide) throw new Error(view.reason || `you cannot decide on ${view.intentId}`);
     const note = (decision.note ?? "").trim();
     if (decision.reject && !note) throw new Error("a rejection needs a note saying why");
-    if (calls.server !== view.server) {
-      throw new Error(`${view.intentId} was opened on ${view.server}, and Spine is now ${calls.server}: open it again`);
-    }
     const answer = await calls.call("sdlc_approve", {
       repo_path: repo,
       intent_id: view.intentId,
@@ -134,6 +137,38 @@ export class PlanReview {
       const what = `${String(answer.decision ?? "the decision").toLowerCase()} for ${view.intentId}`;
       throw new Error(`${what} is recorded as ${String(answer.decided_by ?? "?")}, but Spine could not reopen the plan: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * Re-plan from an edited spec (B180, D127): `sdlc_plan` with `spec` renders the document again,
+   * deterministically, with no model and nothing spent. The build gate re-derives the plan from
+   * that spec, so the spec, not the document, is what a person edits. The plan is then read again:
+   * an approval of the old text reads stale.
+   */
+  async replan(intentId: string, spec: Record<string, unknown>, at: string): Promise<PlanView> {
+    // `at` is the folder the spec file is in, not the folder in front: saving it while another
+    // folder's file is in front must not plan into that folder (review of #14).
+    const { calls, repo } = this.bound(at);
+    if (calls.remote) throw new Error(`Edit spec works on the local server only: the spec of ${intentId} is a file in this checkout`);
+    const named = typeof spec.intent_id === "string" ? spec.intent_id : intentId;
+    if (named !== intentId) throw new Error(`the edited spec names intent ${named}, not ${intentId}: it would write another plan. Put the id back`);
+    // A spec with no id is planned by Spine as `spec`: keep it this plan's.
+    await calls.call("sdlc_plan", { repo_path: repo, spec: { ...spec, intent_id: intentId } });
+    return this.open(intentId, repo);
+  }
+
+  /**
+   * Throws unless `view` was read on the server and in the folder Spine now uses. A window with
+   * several folders moves between checkouts (B178): a plan read in one must not be decided or built
+   * in another, where the same id may name another plan or none.
+   */
+  assertHere(view: PlanView): { calls: SpineCalls; repo: string } {
+    const { calls, repo } = this.bound();
+    if (calls.server !== view.server) {
+      throw new Error(`${view.intentId} was opened on ${view.server}, and Spine is now ${calls.server}: open it again`);
+    }
+    if (repo !== view.repo) throw new Error(`${view.intentId} was opened in ${view.repo}, and Spine now points at ${repo}: open it again`);
+    return { calls, repo };
   }
 
   /** The Approve button: confirm who is approving, then decide. `undefined` when nothing was recorded. */
@@ -172,9 +207,16 @@ export class PlanReview {
     }
   }
 
-  private guard(calls: SpineCalls): string {
+  /** The folder a call is about (`at`, else the one in use), and the Spine that answers for it. */
+  private bound(at?: string): { calls: SpineCalls; repo: string } {
+    const server = this.options.calls();
+    const repo = this.guard(server, at);
+    return { calls: server.remote ? server : this.options.calls(repo), repo };
+  }
+
+  private guard(calls: SpineCalls, at?: string): string {
     if (!this.options.isTrusted()) throw new RestrictedWorkspaceError();
-    const repo = this.options.repo();
+    const repo = at ?? this.options.repo();
     if (repo) return repo;
     // A shared server reads only the checkouts its admin listed, by their path on the server.
     throw new Error(
@@ -201,6 +243,7 @@ export function statusText(view: PlanView): { text: string; tooltip: string } {
       ? `A decision here is ${NOT_A_GATE}.`
       : `Locally you are approving as ${view.approver || "nobody: set git config user.name"}.`,
   ];
+  if (!view.remote) lines.push(`File: ${planFile(view.repo, view.intentId)} (read-only here: change it with Edit spec…)`);
   if (view.approval) lines.push(`Decided ${view.approval.decided_at} on digest ${short(view.approval.digest)}.`);
   if (!view.canDecide) lines.push(`You cannot decide: ${view.reason}`);
   return { text: `$(${icon}) Spine plan ${view.intentId}: ${said} · ${short(view.digest)}`, tooltip: lines.join("\n") };
@@ -211,4 +254,23 @@ export function gitUserName(cwd: string): Promise<string> {
   return new Promise((resolve) => {
     execFile("git", ["config", "user.name"], { cwd, timeout: 10_000 }, (err, stdout) => resolve(err ? "" : stdout.trim()));
   });
+}
+
+/**
+ * The `spine-plan:` document's path: the name Spine gives the plan's file, `<id>-build.md` (B180).
+ * It is a read-only view of what Spine holds, so a decision binds to the text shown (D27, D28).
+ */
+export const planPath = (intentId: string) => `/${intentId}-build.md`;
+export const idOfPlanPath = (docPath: string) => docPath.replace(/^\//, "").replace(/-build\.md$/, "");
+
+/** Where Spine keeps a plan's spec: `.spine/plans/<id>-spec.json`, beside the plan (`builddoc.spec_path`). */
+export const specFile = (repo: string, intentId: string) => path.join(repo, ".spine", "plans", `${intentId}-spec.json`);
+/** Where Spine keeps the plan itself: `.spine/plans/<id>-build.md` (`builddoc.plan_file`). */
+export const planFile = (repo: string, intentId: string) => path.join(repo, ".spine", "plans", `${intentId}-build.md`);
+
+/** The intent whose spec `file` is, when it is one directly under `repo`'s `.spine/plans`. */
+export function intentOfSpecFile(file: string, repo: string): string | undefined {
+  const rel = path.relative(path.join(repo, ".spine", "plans"), file);
+  if (rel.startsWith("..") || path.isAbsolute(rel) || rel.includes(path.sep)) return undefined;
+  return rel.endsWith("-spec.json") ? rel.slice(0, -"-spec.json".length) || undefined : undefined;
 }

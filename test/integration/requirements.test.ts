@@ -45,7 +45,7 @@ describe("Plan from requirement in the editor (SSPN-246)", () => {
   it("plans a cached requirement with no confirm and opens its plan for review", async () => {
     await vscode.commands.executeCommand("spine.planThisRequirement", vscode.Uri.file(FILE));
     const doc = await until("the plan document", () =>
-      vscode.workspace.textDocuments.find((d) => d.uri.scheme === "spine-plan" && d.uri.path === `/${ID}.md`),
+      vscode.workspace.textDocuments.find((d) => d.uri.scheme === "spine-plan" && d.uri.path === `/${ID}-build.md`),
     );
     assert.match(doc.getText(), new RegExp(ID));
     const api = await spineApi();

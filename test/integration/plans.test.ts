@@ -11,6 +11,7 @@ import { sleep, spineApi } from "./helpers";
 
 const ID = process.env.SPINE_PLAN_ID!;
 const PLAN_FILE = process.env.SPINE_PLAN_FILE!;
+const SPEC_FILE = PLAN_FILE.replace(/-build\.md$/, "-spec.json");
 
 const planDocument = () => vscode.workspace.textDocuments.find((d) => d.uri.scheme === "spine-plan");
 
@@ -48,6 +49,8 @@ describe("plan review in the editor (SSPN-243)", () => {
         .flatMap((g) => g.tabs)
         .find((t) => t.input instanceof vscode.TabInputWebview && /markdown\.preview/.test(t.input.viewType)),
     );
+    // B180: named as Spine names the plan's file, not `/<id>.md` at a root.
+    assert.equal(doc.uri.path, `/${ID}-build.md`);
     const view = (await spineApi()).plans.current();
     assert.equal(view?.intentId, ID);
     assert.equal(view?.state, "none");
@@ -85,6 +88,27 @@ describe("plan review in the editor (SSPN-243)", () => {
     }
     await vscode.commands.executeCommand("spine.openPlan", ID);
     assert.equal(api.plans.current()?.canDecide, true);
+  });
+
+  it("Edit spec opens the real spec file; saving it re-plans at $0 and the approval reads stale (B180)", async () => {
+    const api = await spineApi();
+    await vscode.commands.executeCommand("spine.openPlan", ID);
+    await api.plans.decide(ID, { reject: false });
+    assert.equal(api.plans.current()?.state, "approved");
+    await vscode.commands.executeCommand("spine.editSpec");
+    const specDoc = await until("the spec in an editor", () =>
+      vscode.window.activeTextEditor?.document.uri.fsPath.endsWith(`${ID}-spec.json`) ? vscode.window.activeTextEditor.document : undefined,
+    );
+    assert.equal(specDoc.uri.fsPath, SPEC_FILE);
+    const spec = JSON.parse(specDoc.getText()) as { title: string };
+    spec.title = `${spec.title} (narrowed in the editor)`;
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(specDoc.uri, new vscode.Range(0, 0, specDoc.lineCount, 0), JSON.stringify(spec, null, 2));
+    await vscode.workspace.applyEdit(edit);
+    await specDoc.save();
+    const replanned = await until("the re-planned plan", () => (api.plans.current()?.document.includes("(narrowed in the editor)") ? api.plans.current() : undefined));
+    assert.equal(replanned.state, "stale");
+    assert.ok(fs.readFileSync(PLAN_FILE, "utf8").includes("(narrowed in the editor)"), "Spine wrote the plan file");
   });
 
   it("refuses a decision on a plan edited after it was read, and records nothing", async () => {

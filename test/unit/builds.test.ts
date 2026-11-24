@@ -9,8 +9,10 @@ import {
   reviewsToAnnounce,
   type RunRow,
   type RunView,
+  type Stage,
   runText,
   shouldPoll,
+  stageIcon,
   shouldWatch,
   startMessage,
   type Waiting,
@@ -130,6 +132,26 @@ describe("what a run says", () => {
     assert.match(t.description, /implement/);
     assert.match(t.description, /\$1\.50/);
   });
+
+  it("a failed run names the stage that failed and why (B173, SSPN-399)", () => {
+    const failure: Stage = { stage: "implement", status: "failed", detail: "max_tokens is too large: 32000 (gpt-4o allows 16384)", at: 2 };
+    const t = runText({ ...view({ status: "failed", alive: false, phase: "implement" }), failure });
+    assert.match(t.description, /^failed at implement · \$0\.42$/);
+    assert.match(t.tooltip, /Failed at implement: max_tokens is too large: 32000 \(gpt-4o allows 16384\)/);
+  });
+
+  it("a failed run with no failed stage recorded still says failed", () => {
+    assert.match(runText(view({ status: "failed", alive: false })).description, /^failed · /);
+  });
+});
+
+describe("the stage icon (B173)", () => {
+  it("reads Spine's own stage statuses: ok, skipped, failed", () => {
+    assert.equal(stageIcon("ok"), "check");
+    assert.equal(stageIcon("failed"), "error");
+    assert.equal(stageIcon("skipped"), "circle-slash");
+    assert.equal(stageIcon("anything else"), "circle-outline");
+  });
 });
 
 describe("refresh (D92)", () => {
@@ -157,7 +179,7 @@ describe("the start dialog", () => {
 
 /** A fake Spine with 3.67.1's three build tools: decisions behave as the real ones do. */
 function fakeSpine(
-  opts: { rows?: RunRow[]; waits?: Record<string, Waiting | null>; remote?: boolean; diffs?: Record<string, { diff: string; bytes: number; truncated: boolean }> } = {},
+  opts: { rows?: RunRow[]; waits?: Record<string, Waiting | null>; stages?: Record<string, Stage[]>; unreadable?: string[]; remote?: boolean; diffs?: Record<string, { diff: string; bytes: number; truncated: boolean }> } = {},
 ) {
   const seen: { tool: string; args: Record<string, unknown> }[] = [];
   const decided = new Set<string>();
@@ -173,13 +195,14 @@ function fakeSpine(
       return { runs: opts.rows ?? [], count: 52, truncated: true, not_shown: 3 };
     }
     if (tool === "sdlc_builds") {
+      if (opts.unreadable?.includes(String(args.run_id))) throw new Error("connection reset");
       const r = (opts.rows ?? []).find((x) => x.run_id === args.run_id);
       const w = opts.waits?.[String(args.run_id)] ?? null;
       const d = opts.diffs?.[String(args.run_id)];
       const pending = w && !decided.has(w.approval_id) ? w : null;
       return {
         run: r,
-        stages: [{ stage: "intake", status: "passed", detail: "", at: 1 }],
+        stages: opts.stages?.[String(args.run_id)] ?? [{ stage: "intake", status: "ok", detail: "", at: 1 }],
         waiting_on: pending,
         ...(pending?.kind === "review" && d ? { diff: d.diff, diff_bytes: d.bytes, diff_truncated: d.truncated } : {}),
       };
@@ -227,9 +250,9 @@ function fakeGit(existing: string[] = []) {
   return { git, ran };
 }
 
-function runs(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; name?: string; repo?: string; git?: GitRun } = {}) {
+function runs(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; name?: string; repo?: string; git?: GitRun; via?: (string | undefined)[] } = {}) {
   return new BuildRuns({
-    calls: () => spine.calls,
+    calls: (repo?: string) => (opts.via ? { ...spine.calls, call: (t, a, o) => (opts.via!.push(repo), spine.calls.call(t, a, o)) } : spine.calls),
     repo: () => ("repo" in opts ? opts.repo : REPO),
     isTrusted: () => opts.trusted ?? true,
     deciderName: async () => opts.name ?? NAME,
@@ -377,9 +400,23 @@ describe("BuildRuns against a fake Spine", () => {
     assert.deepEqual(spine.of("sdlc_build")[1].args, { repo_path: REPO, action: "start", intent_id: "INT-7" });
   });
 
+  it("a failed run in the list carries its failed stage, read once per listing (B173)", async () => {
+    const failed = row({ run_id: "f1", status: "failed", alive: false });
+    const spine = fakeSpine({
+      rows: [failed, row({ run_id: "r2" })],
+      stages: { f1: [{ stage: "intake", status: "ok", detail: "", at: 1 }, { stage: "implement", status: "failed", detail: "VERDICT: FAILED after 6 test run(s)", at: 2 }] },
+    });
+    const r = runs(spine);
+    const listed = await r.list();
+    assert.deepEqual(listed.views.find((v) => v.row.run_id === "f1")?.failure, { stage: "implement", status: "failed", detail: "VERDICT: FAILED after 6 test run(s)", at: 2 });
+    assert.equal(listed.views.find((v) => v.row.run_id === "r2")?.failure, undefined);
+    await r.list({ poll: true });
+    assert.equal(spine.of("sdlc_builds").filter((s) => s.args.run_id === "f1").length, 1, "a poll does not read a failed run's stages again");
+  });
+
   it("reads one run's stages", async () => {
     const spine = fakeSpine({ rows: [row()] });
-    assert.deepEqual(await runs(spine).stages("r1"), [{ stage: "intake", status: "passed", detail: "", at: 1 }]);
+    assert.deepEqual(await runs(spine).stages("r1"), [{ stage: "intake", status: "ok", detail: "", at: 1 }]);
   });
 
   it("calls nothing in Restricted Mode, without a folder, or on a remote server (D12, D21)", async () => {
@@ -388,6 +425,23 @@ describe("BuildRuns against a fake Spine", () => {
     const remote = fakeSpine({ remote: true });
     await assert.rejects(runs(remote).list(), /this machine/);
     assert.equal(remote.seen.length, 0);
+  });
+});
+
+describe("listing runs in a window with several folders (B178, B173, review of #14)", () => {
+  it("every call goes to the Spine of the folder it reads", async () => {
+    const via: (string | undefined)[] = [];
+    const spine = fakeSpine({ rows: [row({ run_id: "f1", status: "failed", alive: false })] });
+    await runs(spine, { via }).list();
+    assert.ok(via.length === 2 && via.every((v) => v === REPO), JSON.stringify(via));
+  });
+
+  it("one failed run whose stages cannot be read does not blank the listing", async () => {
+    const spine = fakeSpine({ rows: [row({ run_id: "f1", status: "failed", alive: false }), row({ run_id: "f2", status: "failed", alive: false })], unreadable: ["f1"] });
+    const listed = await runs(spine).list();
+    assert.equal(listed.views.length, 2);
+    assert.equal(listed.views[0].failure, undefined);
+    assert.equal(listed.views[1].failure, undefined, "f2's stages hold no failed stage in this fake");
   });
 });
 

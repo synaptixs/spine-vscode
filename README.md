@@ -31,6 +31,15 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
 
 ## What you see
 
+- **Which folder Spine reads.** With one folder open, that folder. With several, the folder of the
+  file in front; with no file in front, the one you chose with **Spine: Choose folder…** (also the
+  Spine item in the status bar, which names the folder in use). With several open and none of those,
+  a request says to choose one instead of guessing. Each folder gets its own Spine process, because
+  Spine reads its start folder's `.env` (keys, Jira site) once: a window that has visited six folders
+  keeps six Spine processes until a folder is removed or the window closes, each holding its own
+  graph in memory. A plan opened in one folder is not decided or built from another, and a spec saved
+  or a requirement file planned goes to its own folder whatever is in front. VS Code's chat follows
+  the folder in use: when it moves, VS Code restarts its Spine server from the new folder.
 - **Above each function and class**, a lens such as `2 callers (at least) · 1 untested in reach · 1 possible untraced call`.
   Callers are the ones the graph can type, so the count is a floor. "Untested in reach" counts the
   production code a change could reach that no test does. Untraced calls are same-named calls Spine
@@ -48,6 +57,10 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   A decision covers exactly the text you were shown: if the plan changed since you opened it,
   nothing is recorded and the plan reopens. Locally you approve under `git config user.name`, and
   the extension shows that name before the call.
+  The document is named as Spine names the file (`<id>-build.md`) and is read-only here: **Edit
+  spec…** in its title bar opens the spec Spine keeps beside it (`.spine/plans/<id>-spec.json`), and
+  saving it re-plans for $0, with no model (an earlier decision then reads as changed). **Reveal plan
+  file** shows the file in the Explorer.
 - **Plan from requirement** (on this machine only). **Spine: Plan from requirement…** in the
   Command Palette picks a Markdown file in the folder, or takes a pasted ticket or URL
   (`jira://…`, `confluence://…`, `notion://…`, `file://…`); **Spine: Plan this requirement** is on a
@@ -66,7 +79,7 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   checkout's `.env`, as is the per-run cap `SDLC_RUN_BUDGET_USD` ($25 when unset). The extension
   never reads or writes `.env`.
 - **Runs**, in the Spine sidebar: this checkout's builds, newest first, with their state, stage and
-  spend, and their stages underneath; runs of other repositories are counted, not shown. It refreshes
+  spend, and their stages underneath (a failed build says which stage failed, and its tooltip why); runs of other repositories are counted, not shown. It refreshes
   every 5 s while it is visible and a build is running, and otherwise when you open it.
   - **Cancel** ends a build; its branch and worktree stay. **Open worktree** opens it in a new window.
   - A build that stopped at its budget offers **Raise cap and resume…**: raise

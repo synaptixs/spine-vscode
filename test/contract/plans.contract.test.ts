@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import { localCalls, PlanMovedError } from "../../src/calls";
 import { SpineClient } from "../../src/client";
 import { spineLaunch } from "../../src/launch";
-import { gitUserName, PlanReview } from "../../src/review";
+import { gitUserName, PlanReview, specFile } from "../../src/review";
 import { GIT_NAME, type PlanFixture, planFixture } from "../support/planFixture";
 
 describe("plan review against the real Spine (SSPN-243)", () => {
@@ -85,5 +85,19 @@ describe("plan review against the real Spine (SSPN-243)", () => {
     assert.notEqual(reopened.digest, before.digest);
     await assert.rejects(r.decide(before, { reject: false }), PlanMovedError);
     assert.equal((await r.open(fixture.intentId)).state, "stale");
+  });
+
+  it("re-plans from the spec Spine kept, edited: no model, the new text, an approval of the old one stale (B180, D127)", async () => {
+    const r = review("plan");
+    const approved = await r.decide(await r.open(fixture.intentId), { reject: false });
+    assert.equal(approved.state, "approved");
+    const file = specFile(fixture.root, fixture.intentId);
+    const spec = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown> & { title: string };
+    spec.title = `${spec.title} (narrowed in the contract test)`;
+    const after = await r.replan(fixture.intentId, spec, fixture.root);
+    assert.ok(after.document.includes("(narrowed in the contract test)"), "the plan is rendered from the edited spec");
+    assert.equal(after.state, "stale");
+    assert.equal(fs.readFileSync(fixture.planFile, "utf8"), after.document, "Spine wrote the plan file");
+    assert.equal((JSON.parse(fs.readFileSync(file, "utf8")) as { title: string }).title, spec.title, "and kept the edited spec for the build gate");
   });
 });

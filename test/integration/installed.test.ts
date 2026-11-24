@@ -106,7 +106,7 @@ describe("the installed .vsix in a fresh profile (SSPN-275, SSPN-247)", () => {
     await vscode.commands.executeCommand("spine.planThisRequirement", vscode.Uri.file(REQUIREMENT_FILE));
     let plan: vscode.TextDocument | undefined;
     for (let i = 0; i < 240 && !plan; i++) {
-      plan = vscode.workspace.textDocuments.find((d) => d.uri.scheme === "spine-plan" && d.uri.path === `/${REQUIREMENT_ID}.md`);
+      plan = vscode.workspace.textDocuments.find((d) => d.uri.scheme === "spine-plan" && d.uri.path === `/${REQUIREMENT_ID}-build.md`);
       if (!plan) await sleep(250);
     }
     assert.ok(plan, `no plan document opened for ${REQUIREMENT_ID}`);

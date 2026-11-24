@@ -1,7 +1,7 @@
 import * as assert from "node:assert/strict";
 import { checked, PlanMovedError, type SpineCalls } from "../../src/calls";
 import { RestrictedWorkspaceError } from "../../src/client";
-import { PlanReview, type Prompts, statusText } from "../../src/review";
+import { idOfPlanPath, intentOfSpecFile, planPath, PlanReview, type Prompts, specFile, statusText } from "../../src/review";
 
 const ID = "INT-7";
 const REPO = "/work/shop";
@@ -52,6 +52,14 @@ function fakeSpine(opts: { remote?: boolean; canApprove?: boolean; reason?: stri
         };
         return { intent_id: ID, decision: state.approval.decision, decided_by: state.approval.decided_by };
       }
+      if (tool === "sdlc_plan" && args.spec) {
+        // Deterministic and free: the document is re-rendered from the edited spec (B180).
+        const spec = args.spec as { title?: string };
+        if (!spec.title) return checked({ error: "spec.title: Field required", valid_fields: ["title", "summary", "scope"] });
+        state.text = `# Build document\n\n§1 ${spec.title}\n`;
+        state.version += 1;
+        return { intent_id: ID, document: state.text, path: `${REPO}/.spine/plans/${ID}-build.md` };
+      }
       throw new Error(`unexpected tool ${tool}`);
     },
   };
@@ -65,6 +73,87 @@ function fakeSpine(opts: { remote?: boolean; canApprove?: boolean; reason?: stri
     approvals: () => state.seen.filter((s) => s.tool === "sdlc_approve"),
   };
 }
+
+describe("where a plan and its spec live (B180, SSPN-406, D127)", () => {
+  it("the plan document is named as Spine names its file, and the id comes back from it", () => {
+    assert.equal(planPath("intent-3f9a"), "/intent-3f9a-build.md");
+    assert.equal(idOfPlanPath("/intent-3f9a-build.md"), "intent-3f9a");
+  });
+
+  it("the spec sits beside the plan, under .spine/plans", () => {
+    assert.equal(specFile("/work/shop", "INT-7"), "/work/shop/.spine/plans/INT-7-spec.json");
+    assert.equal(intentOfSpecFile("/work/shop/.spine/plans/INT-7-spec.json", "/work/shop"), "INT-7");
+    assert.equal(intentOfSpecFile("/work/shop/.spine/plans/history/INT-7-spec.json", "/work/shop"), undefined);
+    assert.equal(intentOfSpecFile("/work/other/.spine/plans/INT-7-spec.json", "/work/shop"), undefined);
+    assert.equal(intentOfSpecFile("/work/shop/.spine/plans/INT-7-build.md", "/work/shop"), undefined);
+  });
+});
+
+describe("re-planning from an edited spec (B180, D127)", () => {
+  it("sends the edited spec to sdlc_plan (no model, $0) and reopens the plan; an earlier approval reads stale", async () => {
+    const spine = fakeSpine();
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
+    await r.decide(await r.open(ID), { reject: false });
+    const after = await r.replan(ID, { intent_id: ID, title: "Narrower scope" }, REPO);
+    const sent = spine.state.seen.find((s) => s.tool === "sdlc_plan");
+    assert.deepEqual(sent?.args, { repo_path: REPO, spec: { intent_id: ID, title: "Narrower scope" } });
+    assert.match(after.document, /Narrower scope/);
+    assert.equal(after.state, "stale");
+  });
+
+  it("refuses a spec that names another intent: it would write another plan", async () => {
+    const spine = fakeSpine();
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
+    await assert.rejects(r.replan(ID, { intent_id: "INT-8", title: "x" }, REPO), /names intent INT-8, not INT-7/);
+    assert.equal(spine.state.seen.length, 0);
+  });
+
+  it("refuses on a remote server: the spec file is on this machine", async () => {
+    const spine = fakeSpine({ remote: true });
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => "/srv/shop", isTrusted: () => true, approverName: async () => "" });
+    await assert.rejects(r.replan(ID, { intent_id: ID, title: "x" }, "/srv/shop"), /on the local server only/);
+    assert.equal(spine.state.seen.length, 0);
+  });
+
+  it("shows Spine's own refusal of an invalid spec", async () => {
+    const spine = fakeSpine();
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
+    await assert.rejects(r.replan(ID, { intent_id: ID }, REPO), /spec\.title: Field required/);
+  });
+
+  it("re-plans in the spec's own folder, on that folder's Spine, whatever folder is in front (B178, review of #14)", async () => {
+    const spine = fakeSpine();
+    const via: (string | undefined)[] = [];
+    const r = new PlanReview({
+      calls: (repo?: string) => ({ ...spine.calls, call: (t, a, o) => (via.push(repo), spine.calls.call(t, a, o)) }),
+      repo: () => "/work/other",
+      isTrusted: () => true,
+      approverName: async () => "Ada",
+    });
+    const after = await r.replan(ID, { intent_id: ID, title: "Narrower scope" }, REPO);
+    assert.deepEqual(
+      spine.state.seen.map((s) => [s.tool, s.args.repo_path]),
+      [["sdlc_plan", REPO], ["sdlc_plan_document", REPO]],
+    );
+    assert.deepEqual(via, [REPO, REPO], "each call went to the Spine started in the spec's folder, with its .env");
+    assert.equal(after.repo, REPO);
+  });
+
+  it("a spec whose intent_id was deleted is re-planned under its own id, not as `spec` (review of #14)", async () => {
+    const spine = fakeSpine();
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => true, approverName: async () => "Ada" });
+    await r.replan(ID, { title: "Narrower scope" }, REPO);
+    const sent = spine.state.seen.find((s) => s.tool === "sdlc_plan");
+    assert.deepEqual(sent?.args.spec, { title: "Narrower scope", intent_id: ID });
+  });
+
+  it("calls nothing in Restricted Mode", async () => {
+    const spine = fakeSpine();
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => REPO, isTrusted: () => false, approverName: async () => "Ada" });
+    await assert.rejects(r.replan(ID, { intent_id: ID, title: "x" }, REPO), RestrictedWorkspaceError);
+    assert.equal(spine.state.seen.length, 0);
+  });
+});
 
 function review(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; gitName?: string; repo?: string } = {}) {
   let asked = 0;
@@ -213,6 +302,17 @@ describe("PlanReview", () => {
       assert.deepEqual(remote.approvals(), []);
     });
 
+    it("refuses a plan opened in another folder than Spine now points at (B178, D123)", async () => {
+      const spine = fakeSpine();
+      let repo = REPO;
+      const r = new PlanReview({ calls: () => spine.calls, repo: () => repo, isTrusted: () => true, approverName: async () => "Ada" });
+      const view = await r.open(ID);
+      assert.equal(view.repo, REPO);
+      repo = "/work/other";
+      await assert.rejects(r.decide(view, { reject: false }), new RegExp(`opened in ${REPO}, and Spine now points at /work/other: open it again`));
+      assert.deepEqual(spine.approvals(), []);
+    });
+
     it("says a decision was recorded when the plan cannot be reopened after it (review item 6)", async () => {
       const spine = fakeSpine({ failReopen: true });
       const { r } = review(spine);
@@ -332,6 +432,7 @@ describe("PlanReview", () => {
       assert.ok(!s.text.includes("0123456789abcdef"), "the digest is shortened");
       assert.match(s.tooltip, /local/);
       assert.match(s.tooltip, /approving as Ada Lovelace/);
+      assert.match(s.tooltip, /File: \/work\/shop\/\.spine\/plans\/INT-7-build\.md \(read-only here: change it with Edit spec…\)/);
     });
 
     it("says when a plan changed after its decision", async () => {
@@ -353,5 +454,31 @@ describe("PlanReview", () => {
       assert.match(s.tooltip, /signed in through VS Code/);
       assert.match(s.tooltip, /signed record, not a gate/);
     });
+  });
+});
+
+describe("which folder's Spine a plan call reaches (B178, review of #14)", () => {
+  it("opens, lists and decides on the Spine of the folder each call names", async () => {
+    const spine = fakeSpine();
+    const via: (string | undefined)[] = [];
+    const r = new PlanReview({
+      calls: (repo?: string) => ({ ...spine.calls, call: (t, a, o) => (via.push(repo), spine.calls.call(t, a, o)) }),
+      repo: () => REPO,
+      isTrusted: () => true,
+      approverName: async () => "Ada",
+    });
+    await r.list();
+    await r.decide(await r.open(ID), { reject: false });
+    assert.ok(via.length >= 4 && via.every((v) => v === REPO), `every call bound to ${REPO}: ${JSON.stringify(via)}`);
+  });
+
+  it("a plan opened in one folder is not built from another (the same check a decision makes)", async () => {
+    const spine = fakeSpine();
+    let repo = REPO;
+    const r = new PlanReview({ calls: () => spine.calls, repo: () => repo, isTrusted: () => true, approverName: async () => "Ada" });
+    const view = await r.open(ID);
+    r.assertHere(view);
+    repo = "/work/other";
+    assert.throws(() => r.assertHere(view), /opened in \/work\/shop, and Spine now points at \/work\/other: open it again/);
   });
 });

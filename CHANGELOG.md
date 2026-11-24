@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+Fixes from a field report, on the same Spine 3.68.0.
+
+- The right folder (SSPN-404): with several folders open, Spine used to read the first one, and
+  that folder's `.env`, whatever you were working in, so planning from a Jira ticket failed. It
+  now reads the folder of the file in front, or the one you choose with **Spine: Choose folder…**
+  (also the Spine item in the status bar), and asks when it cannot tell. Each folder gets its own
+  Spine process, so each reads its own `.env`; every call about a folder goes to that folder's
+  process. A plan opened in one folder is not decided or built from another, a saved spec re-plans
+  in its own folder, a requirement file is planned into its own folder, and "Spine planned …" names
+  the folder. VS Code's chat follows the folder in use, and with several folders open and none in
+  use it is offered no Spine server rather than one started in a folder nobody chose.
+- Why a build failed (SSPN-399): a failed build's row reads "failed at <stage>", and its tooltip
+  gives Spine's reason. A passed stage shows a check again (it showed a hollow circle). One run whose
+  stages cannot be read no longer blanks the Runs view.
+- Editing a plan (SSPN-406): the plan opens as `<id>-build.md`, and its tooltip names the file in
+  `.spine/plans/`. **Edit spec…** opens the spec the plan is made from. Saving it plans again for
+  $0, with no model. An approval of the old text then no longer holds, and you decide again. A spec
+  whose `intent_id` was deleted stays this plan's.
+  **Reveal plan file** shows the plan's file in the Explorer.
+
 ## 0.3.0 — 2026-10-31
 
 Runs in Cursor as well as VS Code, on the same Spine 3.68.0.
