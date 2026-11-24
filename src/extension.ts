@@ -25,7 +25,7 @@ import { BuildRuns, nodeGit } from "./builds";
 import { type LmTools, localCalls, remoteCalls, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError, SpineClient } from "./client";
 import { editorFeatures, mcpNotice, remoteServersSupported } from "./editor";
-import { FolderChoice } from "./folders";
+import { ChooseFolderError, FolderChoice } from "./folders";
 import { exposesTestHooks } from "./hooks";
 import { SPINE_VERSION, spineLaunch } from "./launch";
 import { SpineLenses } from "./lenses";
@@ -92,8 +92,14 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
       clients.delete(cwd);
     }
   };
-  /** The client of the folder in use, for calls whose `repo_path` is that same folder. */
+  /** The client of the folder in use, for the lenses, which read the file in front. */
   const client = () => clientFor(softFolder());
+  /**
+   * Calls about folder `repo`, always on that folder's own process. A surface resolves its folder
+   * once and binds to it, so a pick left open while another folder's file comes to front cannot
+   * send one folder's `repo_path` to another folder's process and key (review of #14).
+   */
+  const localAt = (repo?: string) => localCalls(() => clientFor(repo ?? softFolder()));
   const definitionsChanged = new vscode.EventEmitter<void>();
   // The same .vsix runs in Cursor, which stubs the definition provider (SSPN-284, src/editor.ts).
   const editor = editorFeatures({
@@ -103,6 +109,9 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
 
   const mcpDefinitions = (): vscode.McpServerDefinition[] => {
     if (!vscode.workspace.isTrusted || server() !== "local") return [];
+    // Several folders open and none in use: offer no definition rather than one started from a
+    // folder nobody chose, with that folder's .env (B178). It comes back once a folder is in use.
+    if (folderPaths().length > 1 && !softFolder()) return [];
     const { command, args, env } = launch();
     const definition = new vscode.McpStdioServerDefinition("Spine", command, args, env ?? {}, SPINE_VERSION);
     definition.cwd = folder();
@@ -113,9 +122,9 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
 
   const lenses = new SpineLenses(client, folder);
   let remote: SpineCalls | undefined;
-  const calls = (): SpineCalls => {
+  const calls = (repo?: string): SpineCalls => {
     const name = server();
-    if (name === "local") return localCalls(client);
+    if (name === "local") return localAt(repo);
     if (remote?.server !== name) remote = remoteCalls(name, lmTools);
     return remote;
   };
@@ -137,7 +146,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     return undefined;
   };
   const builds = new BuildRuns({
-    calls: () => localCalls(client),
+    calls: localAt,
     repo: folderPath,
     isTrusted: () => vscode.workspace.isTrusted,
     deciderName: async () => {
@@ -156,7 +165,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
   });
   const plans = new SpinePlans(() => review, showTrustNotice, buildBlocker, (id) => runs.build(id));
   const planner = new RequirementPlanner({
-    calls: () => localCalls(client),
+    calls: localAt,
     repo: folderPath,
     isTrusted: () => vscode.workspace.isTrusted,
     blocker: () => requirementBlocker(server(), level()),
@@ -188,6 +197,9 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
     showFolder();
     lenses.invalidate();
     runs.invalidate();
+    // VS Code's chat starts Spine from the definition's cwd, and that folder's .env: when the folder
+    // in use moves, so does the definition, and VS Code restarts that server (B178, review of #14).
+    definitionsChanged.fire();
   };
   showFolder();
 
@@ -276,6 +288,7 @@ export function activate(context: vscode.ExtensionContext): SpineApi {
         );
       } catch (err) {
         if (err instanceof RestrictedWorkspaceError) showTrustNotice();
+        else if (err instanceof ChooseFolderError) void vscode.window.showWarningMessage(`Spine: ${err.message}`);
         else void vscode.window.showErrorMessage(`Spine did not start: ${(err as Error).message}`);
       }
     }),

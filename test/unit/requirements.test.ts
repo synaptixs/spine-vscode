@@ -69,10 +69,10 @@ function prompts(answers: { confirm?: boolean; pick?: string } = {}) {
   return { p, asked };
 }
 
-function planner(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; blocker?: string; repo?: string | null } = {}) {
+function planner(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; blocker?: string; repo?: string | null; via?: (string | undefined)[] } = {}) {
   const opened: string[] = [];
   const p = new RequirementPlanner({
-    calls: () => spine.calls,
+    calls: (repo?: string) => (opts.via ? { ...spine.calls, call: (t, a, o) => (opts.via!.push(repo), spine.calls.call(t, a, o)) } : spine.calls),
     repo: () => (opts.repo === null ? undefined : (opts.repo ?? REPO)),
     isTrusted: () => opts.trusted ?? true,
     blocker: () => opts.blocker,
@@ -263,6 +263,15 @@ describe("Plan from requirement (SSPN-246)", () => {
       const { p } = planner(spine, { blocker: "Plan from requirement runs on this machine only: set spine.server to local" });
       await assert.rejects(p.plan(SOURCE, prompts().p), /set spine\.server to local/);
       assert.equal(spine.state.seen.length, 0);
+    });
+
+    it("a requirement file plans into its own folder, on that folder's Spine and key, not the folder in front (B178, review of #14)", async () => {
+      const spine = fakeSpine({ cached: true });
+      const via: (string | undefined)[] = [];
+      const { p } = planner(spine, { repo: "/work/other", via });
+      await p.plan(SOURCE, prompts().p, REPO);
+      assert.ok(spine.state.seen.length >= 2 && spine.state.seen.every((s) => s.args.repo_path === REPO), JSON.stringify(spine.state.seen.map((s) => s.args.repo_path)));
+      assert.ok(via.every((v) => v === REPO), JSON.stringify(via));
     });
 
     it("calls nothing with no folder open", async () => {

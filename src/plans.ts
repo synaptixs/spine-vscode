@@ -7,10 +7,10 @@
  *
  * The decisions themselves live in src/review.ts; this file only draws them.
  */
+import * as fs from "node:fs";
 import * as vscode from "vscode";
 import { PlanMovedError } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
-import * as fs from "node:fs";
 import { idOfPlanPath, planFile, planPath, type PlanReview, type PlanView, type Prompts, specFile, statusText } from "./review";
 
 export const SCHEME = "spine-plan";
@@ -40,8 +40,11 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
   private readonly views = new Map<string, PlanView>();
   private active: string | undefined;
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-  /** Spec files opened with Edit spec…, by path: saving one re-plans its intent (B180, D127). */
-  private readonly editing = new Map<string, string>();
+  /**
+   * Spec files opened with Edit spec…, by path: saving one re-plans its intent (B180, D127), in the
+   * folder the file is in, whatever folder is in front (review of #14).
+   */
+  private readonly editing = new Map<string, { id: string; repo: string }>();
   private readonly subscriptions: vscode.Disposable[];
 
   /**
@@ -66,9 +69,11 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
       vscode.commands.registerCommand("spine.editSpec", (uri?: vscode.Uri) => this.guarded(() => this.editSpec(uri))),
       vscode.commands.registerCommand("spine.revealPlanFile", (uri?: vscode.Uri) => this.guarded(() => this.revealPlanFile(uri))),
       vscode.workspace.onDidSaveTextDocument((doc) => {
-        const id = this.editing.get(doc.uri.fsPath);
-        if (id) void this.guarded(() => this.replan(id, doc));
+        const editing = this.editing.get(doc.uri.fsPath);
+        if (editing) void this.guarded(() => this.replan(editing.id, editing.repo, doc));
       }),
+      // A closed spec is no longer being edited here: a later save elsewhere must not re-plan.
+      vscode.workspace.onDidCloseTextDocument((doc) => void this.editing.delete(doc.uri.fsPath)),
     ];
   }
 
@@ -170,7 +175,7 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     if (!fs.existsSync(file)) {
       throw new Error(`Spine kept no spec for ${view.intentId} (planned before specs were kept): plan it again from its requirement`);
     }
-    this.editing.set(file, view.intentId);
+    this.editing.set(file, { id: view.intentId, repo: view.repo });
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(file), { preview: false });
     void vscode.window.showInformationMessage(
       `Spine: edit ${view.intentId}'s title, summary, scope or acceptance criteria, then save. Spine re-plans it for $0, with no model. ` +
@@ -178,7 +183,7 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     );
   }
 
-  private async replan(intentId: string, doc: vscode.TextDocument): Promise<void> {
+  private async replan(intentId: string, repo: string, doc: vscode.TextDocument): Promise<void> {
     let spec: Record<string, unknown>;
     try {
       spec = JSON.parse(doc.getText()) as Record<string, unknown>;
@@ -188,7 +193,7 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     const before = this.views.get(intentId)?.state;
     const after = this.store(
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Spine: re-planning ${intentId}…` }, () =>
-        this.review().replan(intentId, spec),
+        this.review().replan(intentId, spec, repo),
       ),
     );
     const decided = before === "approved" || before === "rejected" ? ` Its ${before === "approved" ? "approval" : "rejection"} no longer holds: read it and decide again.` : "";
@@ -213,6 +218,8 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
       void vscode.window.showWarningMessage(`Spine: ${view.intentId} is ${view.state}: only an approved plan is built.`);
       return;
     }
+    // Builds run in the folder in use: a plan approved in another folder is not this folder's (B178).
+    this.review().assertHere(view);
     await this.onBuild(view.intentId);
   }
 
