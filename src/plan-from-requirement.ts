@@ -78,13 +78,15 @@ export class SpineRequirements implements vscode.Disposable {
       void vscode.window.showInformationMessage("Spine: Plan this requirement works on a Markdown file in this folder.");
       return;
     }
-    await this.plan(sourceForFile(uri.fsPath));
+    // The file's own folder, not the folder in front: its requirement is planned into its checkout,
+    // on that checkout's key (B178, review of #14).
+    await this.plan(sourceForFile(uri.fsPath), vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath);
   }
 
-  private async plan(source: string): Promise<void> {
+  private async plan(source: string, folder?: string): Promise<void> {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: `Spine: planning ${source}…` },
-      () => this.planner().plan(source, prompts),
+      () => this.planner().plan(source, prompts, folder),
     );
   }
 

@@ -21,7 +21,9 @@ const SOURCE = "file:///work/shop/docs/CART-9.md";
  * and spends nothing; a plan of an uncached source derives (spending `cost`) and caches it; several
  * intents and no `intent_id` returns them and plans nothing; a cached source plans for $0.
  */
-function fakeSpine(opts: { cached?: boolean; intents?: Intent[]; cost?: number; estimated?: boolean; warnings?: string[] } = {}) {
+function fakeSpine(
+  opts: { cached?: boolean; intents?: Intent[]; cost?: number; estimated?: boolean; warnings?: string[]; site?: string; refuse?: Record<string, unknown> } = {},
+) {
   const intents = opts.intents ?? [{ id: "CART-9", title: "Show the total with tax" }];
   const state = { cached: !!opts.cached, seen: [] as { args: Record<string, unknown>; timeoutMs?: number }[] };
   const calls: SpineCalls = {
@@ -33,10 +35,18 @@ function fakeSpine(opts: { cached?: boolean; intents?: Intent[]; cost?: number; 
       if (args.extract === false) {
         return { source: args.source, cached: state.cached, intents: state.cached ? intents : [], spent_usd: 0 };
       }
+      if (opts.refuse) return checked(opts.refuse);
       const derived = !state.cached;
       state.cached = true;
       const spent = derived ? (opts.cost ?? 0.0123) : 0;
-      const head = { source: args.source, cached: !derived, spent_usd: spent, spent_estimated: !!opts.estimated, warnings: opts.warnings ?? [] };
+      const head = {
+        source: args.source,
+        cached: !derived,
+        spent_usd: spent,
+        spent_estimated: !!opts.estimated,
+        warnings: opts.warnings ?? [],
+        ...(opts.site !== undefined ? { source_site: opts.site, checkout: REPO } : {}),
+      };
       const chosen = (args.intent_id as string | undefined) ?? (intents.length === 1 ? intents[0].id : undefined);
       if (!chosen) return { ...head, intents, next: "several intents: plan one with intent_id" };
       // A refusal goes through `checked`, as the real seam's does (src/calls.ts).
@@ -69,10 +79,10 @@ function prompts(answers: { confirm?: boolean; pick?: string } = {}) {
   return { p, asked };
 }
 
-function planner(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; blocker?: string; repo?: string | null } = {}) {
+function planner(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; blocker?: string; repo?: string | null; via?: (string | undefined)[] } = {}) {
   const opened: string[] = [];
   const p = new RequirementPlanner({
-    calls: () => spine.calls,
+    calls: (repo?: string) => (opts.via ? { ...spine.calls, call: (t, a, o) => (opts.via!.push(repo), spine.calls.call(t, a, o)) } : spine.calls),
     repo: () => (opts.repo === null ? undefined : (opts.repo ?? REPO)),
     isTrusted: () => opts.trusted ?? true,
     blocker: () => opts.blocker,
@@ -122,6 +132,43 @@ describe("Plan from requirement (SSPN-246)", () => {
       assert.equal(asked.confirms.length, 0);
       assert.deepEqual(opened, ["CART-9"]);
       assert.match(asked.infos.at(-1) ?? "", /CART-9.*\$0\b.*cached/);
+    });
+
+    it("says which site a ticket was read from when Spine names it (B178)", async () => {
+      const spine = fakeSpine({ cached: true, site: "acme.atlassian.net" });
+      const { p } = planner(spine);
+      const { p: ask, asked } = prompts();
+      await p.plan(SOURCE, ask);
+      assert.match(asked.infos.at(-1) ?? "", /from .* \(acme\.atlassian\.net\) in shop/);
+    });
+
+    it("a refused Jira plan says which checkout's .env Spine used, and that it names no Jira site (B178)", async () => {
+      const spine = fakeSpine({ refuse: { error: "Jira not configured (need JIRA_BASE_URL / EMAIL / API_TOKEN)", checkout: "/work/docs", source_site: "" } });
+      const { p } = planner(spine);
+      const err = await p.plan("jira://CART-9", prompts().p).then(() => undefined, (e: Error) => e);
+      assert.match(err?.message ?? "", /Jira not configured.*planned in \/work\/docs, whose \.env names no Jira site/s);
+      assert.equal((err as SpineRefusal).answer.checkout, "/work/docs", "Spine's answer is kept");
+    });
+
+    it("a refused file plan names the checkout and says nothing of a site, which a file does not need (review of #15)", async () => {
+      const spine = fakeSpine({ refuse: { error: "no API key for the intake model", checkout: "/work/docs", source_site: "" } });
+      const { p } = planner(spine);
+      const err = await p.plan(SOURCE, prompts().p).then(() => undefined, (e: Error) => e);
+      assert.match(err?.message ?? "", /no API key for the intake model \(Spine planned in \/work\/docs\)$/);
+    });
+
+    it("a refused Confluence plan names its site when there is one (review of #15)", async () => {
+      const spine = fakeSpine({ refuse: { error: "page not found", checkout: "/work/docs", source_site: "wiki.acme.test" } });
+      const { p } = planner(spine);
+      await assert.rejects(p.plan("confluence://123", prompts().p), /page not found \(Spine planned in \/work\/docs; the site is wiki\.acme\.test\)$/);
+    });
+
+    it("says which folder the plan was made in (B178, D123)", async () => {
+      const spine = fakeSpine({ cached: true });
+      const { p } = planner(spine);
+      const { p: ask, asked } = prompts();
+      await p.plan(SOURCE, ask);
+      assert.match(asked.infos.at(-1) ?? "", /in shop \(\/work\/shop\)/);
     });
 
     it("asks first, spends only after the yes, and shows what it spent (D105)", async () => {
@@ -255,6 +302,15 @@ describe("Plan from requirement (SSPN-246)", () => {
       const { p } = planner(spine, { blocker: "Plan from requirement runs on this machine only: set spine.server to local" });
       await assert.rejects(p.plan(SOURCE, prompts().p), /set spine\.server to local/);
       assert.equal(spine.state.seen.length, 0);
+    });
+
+    it("a requirement file plans into its own folder, on that folder's Spine and key, not the folder in front (B178, review of #14)", async () => {
+      const spine = fakeSpine({ cached: true });
+      const via: (string | undefined)[] = [];
+      const { p } = planner(spine, { repo: "/work/other", via });
+      await p.plan(SOURCE, prompts().p, REPO);
+      assert.ok(spine.state.seen.length >= 2 && spine.state.seen.every((s) => s.args.repo_path === REPO), JSON.stringify(spine.state.seen.map((s) => s.args.repo_path)));
+      assert.ok(via.every((v) => v === REPO), JSON.stringify(via));
     });
 
     it("calls nothing with no folder open", async () => {

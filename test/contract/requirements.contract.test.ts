@@ -1,5 +1,5 @@
 /**
- * Plan from requirement (SSPN-246) against the REAL Spine 3.68.0 (SSPN-279), free: the extension's
+ * Plan from requirement (SSPN-246) against the REAL pinned Spine (3.68.0 and later, SSPN-279), free: the extension's
  * own flow and seam on a requirement whose spec is seeded into Spine's intake cache through Spine's
  * own Python (test/support/seedIntake.ts). No model is called: the checkout has no `.env`, so a
  * derivation would fail rather than spend. The one real extraction is D108's paid run, not here.
@@ -7,7 +7,7 @@
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { localCalls } from "../../src/calls";
+import { localCalls, SpineRefusal } from "../../src/calls";
 import { SpineClient } from "../../src/client";
 import { INTAKE_CACHE_ENV, spineLaunch } from "../../src/launch";
 import { type Intent, RequirementPlanner, type RequirementPrompts, sourceForFile, sourceTyped } from "../../src/requirements";
@@ -154,6 +154,18 @@ describe("Plan from requirement against the real Spine (SSPN-246)", () => {
     const { p, asked } = prompts({ confirm: true });
     await assert.rejects(planner([]).plan(sourceTyped("PROJ-1"), p), /source must be '<kind>:\/\/<root>', got 'PROJ-1'/);
     assert.equal(asked.confirms, 0);
+    assert.equal(fs.existsSync(plansDir()), false);
+  });
+
+  it("a refused Jira plan names the checkout Spine planned in, from Spine's own answer (B178, Spine 3.71)", async () => {
+    const { p } = prompts({ confirm: true });
+    const err = await planner([])
+      .plan(sourceTyped("jira://PROJ-404"), p)
+      .then(() => undefined, (e: unknown) => e);
+    assert.ok(err instanceof SpineRefusal, `a refusal, not ${String(err)}`);
+    assert.equal(fs.realpathSync(String(err.answer.checkout)), fs.realpathSync(fixture.root), "Spine says which checkout's .env it read");
+    assert.equal(typeof err.answer.source_site, "string");
+    assert.match(err.message, /\(Spine planned in .+(; the site is |, whose \.env names no Jira site)/);
     assert.equal(fs.existsSync(plansDir()), false);
   });
 });

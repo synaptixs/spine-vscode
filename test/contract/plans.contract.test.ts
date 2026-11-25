@@ -4,11 +4,12 @@
  * `sdlc_approve(expected_digest)`); until the pin reaches it, set SPINE_SERVER_PATH to a build.
  */
 import * as assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import { localCalls, PlanMovedError } from "../../src/calls";
 import { SpineClient } from "../../src/client";
 import { spineLaunch } from "../../src/launch";
-import { gitUserName, PlanReview } from "../../src/review";
+import { gitUserName, PlanReview, specFile } from "../../src/review";
 import { GIT_NAME, type PlanFixture, planFixture } from "../support/planFixture";
 
 describe("plan review against the real Spine (SSPN-243)", () => {
@@ -85,5 +86,32 @@ describe("plan review against the real Spine (SSPN-243)", () => {
     assert.notEqual(reopened.digest, before.digest);
     await assert.rejects(r.decide(before, { reject: false }), PlanMovedError);
     assert.equal((await r.open(fixture.intentId)).state, "stale");
+  });
+
+  it("says a plan is no longer the checkout's after a commit, and Re-plan makes it fresh again (B182, D126, Spine 3.71)", async () => {
+    const r = review("plan");
+    const before = await r.open(fixture.intentId);
+    execFileSync("git", ["add", "-A"], { cwd: fixture.root });
+    execFileSync("git", ["commit", "-qm", "a commit after the plan"], { cwd: fixture.root });
+    const moved = await r.open(fixture.intentId);
+    assert.equal(moved.fresh, false);
+    assert.equal(moved.derivedAt, before.derivedAt);
+    assert.notEqual(moved.derivedNow, moved.derivedAt);
+    const replanned = await r.replanFromKept(fixture.intentId, fixture.root);
+    assert.equal(replanned.fresh, true, `${replanned.derivedAt} vs ${replanned.derivedNow}`);
+  });
+
+  it("re-plans from the spec Spine kept, edited: no model, the new text, an approval of the old one stale (B180, D127)", async () => {
+    const r = review("plan");
+    const approved = await r.decide(await r.open(fixture.intentId), { reject: false });
+    assert.equal(approved.state, "approved");
+    const file = specFile(fixture.root, fixture.intentId);
+    const spec = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown> & { title: string };
+    spec.title = `${spec.title} (narrowed in the contract test)`;
+    const after = await r.replan(fixture.intentId, spec, fixture.root);
+    assert.ok(after.document.includes("(narrowed in the contract test)"), "the plan is rendered from the edited spec");
+    assert.equal(after.state, "stale");
+    assert.equal(fs.readFileSync(fixture.planFile, "utf8"), after.document, "Spine wrote the plan file");
+    assert.equal((JSON.parse(fs.readFileSync(file, "utf8")) as { title: string }).title, spec.title, "and kept the edited spec for the build gate");
   });
 });

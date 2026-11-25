@@ -7,21 +7,21 @@ holds no API key. The lenses, hovers and plan review spend nothing. A build, and
 requirement's spec, use the model key in the checkout's own `.env`, and the extension asks before
 either one.
 
-**Status:** private preview (0.3.0), not on the Marketplace or Open VSX. Runs in VS Code and in
+**Status:** private preview (0.4.0), not on the Marketplace or Open VSX. Runs in VS Code and in
 Cursor (see [In Cursor](#in-cursor)); other VS Code forks are untested.
 
 ## Install
 
-You get a `.vsix` file (for example `spine-vscode-0.3.0.vsix`, attached to the repository's
+You get a `.vsix` file (for example `spine-vscode-0.4.0.vsix`, attached to the repository's
 GitHub release). Install it in VS Code with **Extensions → ⋯ → Install from VSIX…**, or from a
 terminal:
 
 ```
-code --install-extension spine-vscode-0.3.0.vsix
+code --install-extension spine-vscode-0.4.0.vsix
 ```
 
 In Cursor it is the same file: **Extensions → ⋯ → Install from VSIX…**, or
-`cursor --install-extension spine-vscode-0.3.0.vsix`.
+`cursor --install-extension spine-vscode-0.4.0.vsix`.
 
 Then make sure [`uv`](https://docs.astral.sh/uv/) is installed (see Requirements) and open a
 folder you trust. The first start downloads Spine through `uv`, which takes a few seconds; after
@@ -31,6 +31,15 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
 
 ## What you see
 
+- **Which folder Spine reads.** With one folder open, that folder. With several, the folder of the
+  file in front; with no file in front, the one you chose with **Spine: Choose folder…** (also the
+  Spine item in the status bar, which names the folder in use). With several open and none of those,
+  a request says to choose one instead of guessing. Each folder gets its own Spine process, because
+  Spine reads its start folder's `.env` (keys, Jira site) once: a window that has visited six folders
+  keeps six Spine processes until a folder is removed or the window closes, each holding its own
+  graph in memory. A plan opened in one folder is not decided or built from another, and a spec saved
+  or a requirement file planned goes to its own folder whatever is in front. VS Code's chat follows
+  the folder in use: when it moves, VS Code restarts its Spine server from the new folder.
 - **Above each function and class**, a lens such as `2 callers (at least) · 1 untested in reach · 1 possible untraced call`.
   Callers are the ones the graph can type, so the count is a floor. "Untested in reach" counts the
   production code a change could reach that no test does. Untraced calls are same-named calls Spine
@@ -47,7 +56,14 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   greyed out when you may not decide; the status line's tooltip says why. A rejection needs a note.
   A decision covers exactly the text you were shown: if the plan changed since you opened it,
   nothing is recorded and the plan reopens. Locally you approve under `git config user.name`, and
-  the extension shows that name before the call.
+  the extension shows that name before the call. Approve and Build first ask Spine whether the
+  plan is still the checkout's (Spine 3.71): one derived at another commit, which the build would
+  refuse, or on uncommitted changes, which a build leaves out, warns first and offers **Re-plan
+  ($0)** where that helps.
+  The document is named as Spine names the file (`<id>-build.md`) and is read-only here: **Edit
+  spec…** in its title bar opens the spec Spine keeps beside it (`.spine/plans/<id>-spec.json`), and
+  saving it re-plans for $0, with no model (an earlier decision then reads as changed). **Reveal plan
+  file** shows the file in the Explorer.
 - **Plan from requirement** (on this machine only). **Spine: Plan from requirement…** in the
   Command Palette picks a Markdown file in the folder, or takes a pasted ticket or URL
   (`jira://…`, `confluence://…`, `notion://…`, `file://…`); **Spine: Plan this requirement** is on a
@@ -66,7 +82,7 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   checkout's `.env`, as is the per-run cap `SDLC_RUN_BUDGET_USD` ($25 when unset). The extension
   never reads or writes `.env`.
 - **Runs**, in the Spine sidebar: this checkout's builds, newest first, with their state, stage and
-  spend, and their stages underneath; runs of other repositories are counted, not shown. It refreshes
+  spend, and their stages underneath (a failed build says which stage failed, and its tooltip why); runs of other repositories are counted, not shown. It refreshes
   every 5 s while it is visible and a build is running, and otherwise when you open it.
   - **Cancel** ends a build; its branch and worktree stay. **Open worktree** opens it in a new window.
   - A build that stopped at its budget offers **Raise cap and resume…**: raise
@@ -82,10 +98,14 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
   - A finished build offers **Fetch into my checkout…**: its branch is fetched into your folder as a
     new local branch. Your current branch and files are not touched, an existing branch of that name
     is never overwritten, and nothing is pushed: push it yourself.
-  - A build whose process has gone offers **Resume…**. Runs started from a terminal are shown, and
-    are decided in the terminal (`orchestrator sdlc runs`).
-  - The extension tells its Spine server where runs are kept (`TMPDIR`, `SPINE_RUN_STATE`,
-    `SPINE_RUN_ARTIFACTS`), so the panel and `orchestrator sdlc runs` in a terminal see the same runs.
+  - A build whose process has gone offers **Resume…**, and a running or parked one also **Discard
+    run…** (Spine 3.71): what it waits on is rejected, it reads abandoned, and its branch and worktree
+    stay, so its plan can be built again. A failed build is left as it ended. Runs started from a
+    terminal are shown, and are decided in the terminal (`orchestrator sdlc runs`).
+  - A failed build, or a dead one parked on its own failing tests, offers **Open test output**
+    (Spine 3.71): the last test run's full output. Its tooltip names the failing tests.
+  - The extension tells its Spine server where runs are kept (`XDG_STATE_HOME`, `TMPDIR`,
+    `SPINE_RUN_STATE`, `SPINE_RUN_ARTIFACTS`), so the panel and `orchestrator sdlc runs` in a terminal see the same runs.
 
 ## Settings
 
@@ -104,7 +124,7 @@ In Restricted Mode a workspace's own value for any of these is ignored.
 - [`uv`](https://docs.astral.sh/uv/). The extension starts Spine with one pinned line, so Spine itself does not need to be installed:
 
   ```
-  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.68.0' orchestrator-mcp
+  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.71.0' orchestrator-mcp
   ```
 
   `--python '>=3.12'` lets uv fetch a suitable Python where the system one is older (Debian 12, Ubuntu 22.04).

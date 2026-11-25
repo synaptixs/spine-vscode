@@ -9,10 +9,13 @@ import {
   reviewsToAnnounce,
   type RunRow,
   type RunView,
+  type Stage,
   runText,
   shouldPoll,
+  stageIcon,
   shouldWatch,
   startMessage,
+  testOutputPath,
   type Waiting,
 } from "../../src/builds";
 
@@ -77,9 +80,9 @@ describe("which actions a run offers (D86, D89–D91)", () => {
     }
   });
 
-  it("an own-test question is answered only in the terminal", () => {
+  it("an own-test question is answered only in the terminal; a dead one can still be discarded (D124)", () => {
     const v = view({ status: "parked", alive: false, approval_id: "a1" }, waiting("own_tests"));
-    assert.deepEqual(actionsFor(v), ["openPlan"]);
+    assert.deepEqual(actionsFor(v), ["discard", "openPlan"]);
   });
 
   it("a review park whose process is gone can be dropped, not approved", () => {
@@ -87,13 +90,27 @@ describe("which actions a run offers (D86, D89–D91)", () => {
     assert.deepEqual(actionsFor(v), ["drop", "openPlan"]);
   });
 
-  it("a plan-gate park, or one already decided, offers Resume and Open plan", () => {
-    assert.deepEqual(actionsFor(view({ status: "parked", alive: false, parked_reason: "plan not approved" })), ["resume", "openPlan"]);
+  it("a plan-gate park offers Resume, Discard and Open plan: the field case had only Resume (B179, D124)", () => {
+    assert.deepEqual(actionsFor(view({ status: "parked", alive: false, parked_reason: "the plan has changed since it was approved" })), [
+      "resume",
+      "discard",
+      "openPlan",
+    ]);
   });
 
-  it("a run whose process is gone offers Resume (D78)", () => {
-    assert.deepEqual(actionsFor(view({ status: "running", alive: false })), ["resume", "openPlan"]);
+  it("a run whose process is gone offers Resume and Discard (D78, D124)", () => {
+    assert.deepEqual(actionsFor(view({ status: "running", alive: false })), ["resume", "discard", "openPlan"]);
+  });
+
+  it("a failed run offers Resume, not Discard: Spine leaves a failed run as it ended (review of spine#700)", () => {
     assert.deepEqual(actionsFor(view({ status: "failed", alive: false })), ["resume", "openPlan"]);
+  });
+
+  it("a failed run with a kept test log offers Open test output (B181)", () => {
+    const v: RunView = { ...view({ status: "failed", alive: false }), testLog: "/state/runs/r1/run-tests-6.txt" };
+    assert.deepEqual(actionsFor(v), ["resume", "openTestOutput", "openPlan"]);
+    const terminal: RunView = { ...view({ status: "failed", alive: false, from_editor: false }), testLog: "/x/run-tests-1.txt" };
+    assert.deepEqual(actionsFor(terminal), ["openTestOutput", "openPlan"], "reading a log changes nothing, so a terminal run offers it too");
   });
 
   it("a finished, abandoned or rejected run offers nothing that runs", () => {
@@ -109,8 +126,13 @@ describe("which actions a run offers (D86, D89–D91)", () => {
     assert.deepEqual(actionsFor(view({ alive: true, from_editor: false })), ["openPlan"]);
   });
 
-  it("never offers Discard (D86)", () => {
-    const all = [view(), view({ status: "done", alive: false, worktree: "/wt" }), view({ status: "abandoned", alive: false, worktree: "/wt" })];
+  it("never offers Discard on a live run, a finished one or a terminal's (D124)", () => {
+    const all = [
+      view(),
+      view({ status: "done", alive: false, worktree: "/wt" }),
+      view({ status: "abandoned", alive: false, worktree: "/wt" }),
+      view({ status: "failed", alive: false, from_editor: false }),
+    ];
     for (const v of all) assert.equal((actionsFor(v) as string[]).includes("discard"), false);
   });
 });
@@ -129,6 +151,26 @@ describe("what a run says", () => {
     assert.equal(t.label, "INT-7");
     assert.match(t.description, /implement/);
     assert.match(t.description, /\$1\.50/);
+  });
+
+  it("a failed run names the stage that failed and why (B173, SSPN-399)", () => {
+    const failure: Stage = { stage: "implement", status: "failed", detail: "max_tokens is too large: 32000 (gpt-4o allows 16384)", at: 2 };
+    const t = runText({ ...view({ status: "failed", alive: false, phase: "implement" }), failure });
+    assert.match(t.description, /^failed at implement · \$0\.42$/);
+    assert.match(t.tooltip, /Failed at implement: max_tokens is too large: 32000 \(gpt-4o allows 16384\)/);
+  });
+
+  it("a failed run with no failed stage recorded still says failed", () => {
+    assert.match(runText(view({ status: "failed", alive: false })).description, /^failed · /);
+  });
+});
+
+describe("the stage icon (B173)", () => {
+  it("reads Spine's own stage statuses: ok, skipped, failed", () => {
+    assert.equal(stageIcon("ok"), "check");
+    assert.equal(stageIcon("failed"), "error");
+    assert.equal(stageIcon("skipped"), "circle-slash");
+    assert.equal(stageIcon("anything else"), "circle-outline");
   });
 });
 
@@ -157,7 +199,7 @@ describe("the start dialog", () => {
 
 /** A fake Spine with 3.67.1's three build tools: decisions behave as the real ones do. */
 function fakeSpine(
-  opts: { rows?: RunRow[]; waits?: Record<string, Waiting | null>; remote?: boolean; diffs?: Record<string, { diff: string; bytes: number; truncated: boolean }> } = {},
+  opts: { rows?: RunRow[]; waits?: Record<string, Waiting | null>; stages?: Record<string, Stage[]>; testRuns?: Record<string, { n: number; path: string; bytes: number }[]>; unreadable?: string[]; noDiscard?: boolean; remote?: boolean; diffs?: Record<string, { diff: string; bytes: number; truncated: boolean }> } = {},
 ) {
   const seen: { tool: string; args: Record<string, unknown> }[] = [];
   const decided = new Set<string>();
@@ -173,13 +215,15 @@ function fakeSpine(
       return { runs: opts.rows ?? [], count: 52, truncated: true, not_shown: 3 };
     }
     if (tool === "sdlc_builds") {
+      if (opts.unreadable?.includes(String(args.run_id))) throw new Error("connection reset");
       const r = (opts.rows ?? []).find((x) => x.run_id === args.run_id);
       const w = opts.waits?.[String(args.run_id)] ?? null;
       const d = opts.diffs?.[String(args.run_id)];
       const pending = w && !decided.has(w.approval_id) ? w : null;
       return {
         run: r,
-        stages: [{ stage: "intake", status: "passed", detail: "", at: 1 }],
+        stages: opts.stages?.[String(args.run_id)] ?? [{ stage: "intake", status: "ok", detail: "", at: 1 }],
+        ...(opts.testRuns?.[String(args.run_id)] ? { test_runs: opts.testRuns[String(args.run_id)] } : {}),
         waiting_on: pending,
         ...(pending?.kind === "review" && d ? { diff: d.diff, diff_bytes: d.bytes, diff_truncated: d.truncated } : {}),
       };
@@ -192,6 +236,7 @@ function fakeSpine(
       decided.add(w.approval_id);
       return { decision: args.approve ? "APPROVED" : "REJECTED", decided_by: args.decided_by, next: "resume" };
     }
+    if (tool === "sdlc_build" && args.action === "discard" && opts.noDiscard) return { error: "unknown action 'discard': use start, resume or cancel" };
     if (tool === "sdlc_build") return { run_id: args.run_id || "new-run", status: "running", pid: 42 };
     throw new Error(`unexpected tool ${tool}`);
   }
@@ -227,9 +272,9 @@ function fakeGit(existing: string[] = []) {
   return { git, ran };
 }
 
-function runs(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; name?: string; repo?: string; git?: GitRun } = {}) {
+function runs(spine: ReturnType<typeof fakeSpine>, opts: { trusted?: boolean; name?: string; repo?: string; git?: GitRun; via?: (string | undefined)[] } = {}) {
   return new BuildRuns({
-    calls: () => spine.calls,
+    calls: (repo?: string) => (opts.via ? { ...spine.calls, call: (t, a, o) => (opts.via!.push(repo), spine.calls.call(t, a, o)) } : spine.calls),
     repo: () => ("repo" in opts ? opts.repo : REPO),
     isTrusted: () => opts.trusted ?? true,
     deciderName: async () => opts.name ?? NAME,
@@ -377,9 +422,72 @@ describe("BuildRuns against a fake Spine", () => {
     assert.deepEqual(spine.of("sdlc_build")[1].args, { repo_path: REPO, action: "start", intent_id: "INT-7" });
   });
 
+  it("a failed run in the list carries its failed stage, read once per listing (B173)", async () => {
+    const failed = row({ run_id: "f1", status: "failed", alive: false });
+    const spine = fakeSpine({
+      rows: [failed, row({ run_id: "r2" })],
+      stages: { f1: [{ stage: "intake", status: "ok", detail: "", at: 1 }, { stage: "implement", status: "failed", detail: "VERDICT: FAILED after 6 test run(s)", at: 2 }] },
+    });
+    const r = runs(spine);
+    const listed = await r.list();
+    assert.deepEqual(listed.views.find((v) => v.row.run_id === "f1")?.failure, { stage: "implement", status: "failed", detail: "VERDICT: FAILED after 6 test run(s)", at: 2 });
+    assert.equal(listed.views.find((v) => v.row.run_id === "r2")?.failure, undefined);
+    await r.list({ poll: true });
+    assert.equal(spine.of("sdlc_builds").filter((s) => s.args.run_id === "f1").length, 1, "a poll does not read a failed run's stages again");
+  });
+
+  it("discards a dead run after a confirm that says what happens; Spine marks it abandoned (B179, D124)", async () => {
+    const dead = row({ run_id: "g1", status: "parked", alive: false, parked_reason: "the plan has changed since it was approved" });
+    const spine = fakeSpine({ rows: [dead] });
+    const { p, asked, said } = prompts();
+    assert.equal(await runs(spine).discard(view({ ...dead }), p), true);
+    assert.deepEqual(spine.of("sdlc_build").at(-1)?.args, { repo_path: REPO, action: "discard", run_id: "g1" });
+    assert.match(asked[0], /Discard INT-7\?.*process is gone.*abandoned.*branch and worktree stay.*build its plan again/s);
+    assert.match(said.at(-1) ?? "", /Discarded INT-7/);
+  });
+
+  it("discards nothing when not confirmed, and refuses a live run or a terminal's", async () => {
+    const spine = fakeSpine({ rows: [] });
+    const { p } = prompts({ confirm: false });
+    assert.equal(await runs(spine).discard(view({ status: "parked", alive: false }), p), false);
+    await assert.rejects(runs(spine).discard(view({ alive: true }), prompts().p), /still running: cancel it/);
+    await assert.rejects(runs(spine).discard(view({ status: "failed", alive: false, from_editor: false }), prompts().p), /started from a terminal/);
+    await assert.rejects(runs(spine).discard(view({ status: "failed", alive: false }), prompts().p), /leaves a failed run as it ended/);
+    assert.equal(spine.of("sdlc_build").length, 0);
+  });
+
+  it("Discard on a Spine older than 3.71 says which Spine it needs (review of #15)", async () => {
+    const spine = fakeSpine({ noDiscard: true });
+    await assert.rejects(runs(spine).discard(view({ status: "parked", alive: false }), prompts().p), /Discard needs Spine 3\.71 or newer/);
+  });
+
+  it("a dead parked run (its own tests failing) carries its test log too (review of #15)", async () => {
+    const parked = row({ run_id: "p1", status: "parked", alive: false, approval_id: "ao" });
+    const spine = fakeSpine({ rows: [parked], waits: { p1: waiting("own_tests", { approval_id: "ao" }) }, testRuns: { p1: [{ n: 1, path: "/a/run-tests-1.txt", bytes: 3 }] } });
+    const listed = await runs(spine).list();
+    assert.equal(listed.views[0].testLog, "/a/run-tests-1.txt");
+  });
+
+  it("a test log opens only from an absolute path (review of #15)", () => {
+    assert.equal(testOutputPath({ ...view({ status: "failed" }), testLog: "/a/run-tests-1.txt" }), "/a/run-tests-1.txt");
+    assert.equal(testOutputPath({ ...view({ status: "failed" }), testLog: "runs/r1/run-tests-1.txt" }), undefined);
+    assert.equal(testOutputPath(view({ status: "failed" })), undefined);
+  });
+
+  it("a failed run carries the newest kept test log (B181)", async () => {
+    const failed = row({ run_id: "f1", status: "failed", alive: false });
+    const spine = fakeSpine({
+      rows: [failed],
+      stages: { f1: [{ stage: "implement", status: "failed", detail: "VERDICT: FAILED after 2 test run(s)", at: 2 }] },
+      testRuns: { f1: [{ n: 1, path: "/a/run-tests-1.txt", bytes: 3 }, { n: 2, path: "/a/run-tests-2.txt", bytes: 3 }] },
+    });
+    const listed = await runs(spine).list();
+    assert.equal(listed.views[0].testLog, "/a/run-tests-2.txt");
+  });
+
   it("reads one run's stages", async () => {
     const spine = fakeSpine({ rows: [row()] });
-    assert.deepEqual(await runs(spine).stages("r1"), [{ stage: "intake", status: "passed", detail: "", at: 1 }]);
+    assert.deepEqual(await runs(spine).stages("r1"), [{ stage: "intake", status: "ok", detail: "", at: 1 }]);
   });
 
   it("calls nothing in Restricted Mode, without a folder, or on a remote server (D12, D21)", async () => {
@@ -388,6 +496,23 @@ describe("BuildRuns against a fake Spine", () => {
     const remote = fakeSpine({ remote: true });
     await assert.rejects(runs(remote).list(), /this machine/);
     assert.equal(remote.seen.length, 0);
+  });
+});
+
+describe("listing runs in a window with several folders (B178, B173, review of #14)", () => {
+  it("every call goes to the Spine of the folder it reads", async () => {
+    const via: (string | undefined)[] = [];
+    const spine = fakeSpine({ rows: [row({ run_id: "f1", status: "failed", alive: false })] });
+    await runs(spine, { via }).list();
+    assert.ok(via.length === 2 && via.every((v) => v === REPO), JSON.stringify(via));
+  });
+
+  it("one failed run whose stages cannot be read does not blank the listing", async () => {
+    const spine = fakeSpine({ rows: [row({ run_id: "f1", status: "failed", alive: false }), row({ run_id: "f2", status: "failed", alive: false })], unreadable: ["f1"] });
+    const listed = await runs(spine).list();
+    assert.equal(listed.views.length, 2);
+    assert.equal(listed.views[0].failure, undefined);
+    assert.equal(listed.views[1].failure, undefined, "f2's stages hold no failed stage in this fake");
   });
 });
 

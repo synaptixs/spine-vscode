@@ -14,7 +14,7 @@
  */
 import { execFile } from "node:child_process";
 import * as vscode from "vscode";
-import { type BuildPrompts, type BuildRuns, type RunView, actionsFor, reviewsToAnnounce, runText, shouldPoll, shouldWatch, startMessage, type Stage } from "./builds";
+import { type BuildPrompts, type BuildRuns, type RunView, actionsFor, reviewsToAnnounce, runText, shouldPoll, shouldWatch, stageIcon, startMessage, type Stage, testOutputPath } from "./builds";
 import { PlanMovedError } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
 import type { Opened, ReviewDiffs } from "./review-diff";
@@ -85,6 +85,13 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
       action("resume", (v) => this.options.builds().resume(v, prompts)),
       action("approve", (v) => this.options.builds().approve(v, prompts)),
       action("drop", (v) => this.options.builds().drop(v, prompts)),
+      action("discard", (v) => this.options.builds().discard(v, prompts)),
+      action("openTestOutput", async (v) => {
+        const log = testOutputPath(v);
+        if (!log) throw new Error(`Spine gave no absolute path for ${v.row.run_id}'s test output (${v.testLog ?? "none"}): set SPINE_RUN_ARTIFACTS to an absolute path`);
+        await vscode.window.showTextDocument(vscode.Uri.file(log), { preview: true });
+        return false;
+      }),
       action("raiseCapAndResume", (v) => this.options.builds().raiseCapAndResume(v, prompts)),
       action("review", async (v) => {
         await this.openReview(v);
@@ -156,7 +163,7 @@ export class SpineRuns implements vscode.TreeDataProvider<Node>, vscode.Disposab
       const item = new vscode.TreeItem(stage.stage, vscode.TreeItemCollapsibleState.None);
       item.description = stage.status;
       item.tooltip = stage.detail || undefined;
-      item.iconPath = new vscode.ThemeIcon(stage.status === "passed" ? "check" : stage.status === "failed" ? "error" : "circle-outline");
+      item.iconPath = new vscode.ThemeIcon(stageIcon(stage.status));
       return item;
     }
     const text = runText(node.view);

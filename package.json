@@ -2,7 +2,7 @@
   "name": "spine-vscode",
   "displayName": "Spine",
   "description": "Spine's Product Knowledge Graph in the editor: callers, blast radius, untested code and docs above your code, over MCP.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "synaptixs",
   "private": true,
   "license": "MIT",
@@ -44,6 +44,10 @@
         "title": "Spine: Doctor (check the server)"
       },
       {
+        "command": "spine.chooseFolder",
+        "title": "Spine: Choose folder…"
+      },
+      {
         "command": "spine.showCallers",
         "title": "Spine: Show callers",
         "enablement": "false"
@@ -77,6 +81,16 @@
         "title": "Spine: Build plan",
         "icon": "$(play)",
         "enablement": "spine.planCanBuild"
+      },
+      {
+        "command": "spine.editSpec",
+        "title": "Spine: Edit spec…",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "spine.revealPlanFile",
+        "title": "Spine: Reveal plan file",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "spine.runs.refresh",
@@ -152,6 +166,16 @@
         "command": "spine.runs.openPlan",
         "title": "Open plan",
         "icon": "$(book)"
+      },
+      {
+        "command": "spine.runs.discard",
+        "title": "Discard run…",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "spine.runs.openTestOutput",
+        "title": "Open test output",
+        "icon": "$(output)"
       }
     ],
     "configuration": {
@@ -217,6 +241,16 @@
           "group": "navigation@3"
         },
         {
+          "command": "spine.editSpec",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@4"
+        },
+        {
+          "command": "spine.revealPlanFile",
+          "when": "resourceScheme == spine-plan",
+          "group": "navigation@5"
+        },
+        {
           "command": "spine.review.approve",
           "when": "resourceScheme =~ /^spine-(diff|patch)$/",
           "group": "navigation@1"
@@ -238,6 +272,14 @@
         },
         {
           "command": "spine.buildPlan",
+          "when": "spine.planActive"
+        },
+        {
+          "command": "spine.editSpec",
+          "when": "spine.planActive"
+        },
+        {
+          "command": "spine.revealPlanFile",
           "when": "spine.planActive"
         },
         {
@@ -266,6 +308,14 @@
         },
         {
           "command": "spine.runs.openPlan",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.discard",
+          "when": "false"
+        },
+        {
+          "command": "spine.runs.openTestOutput",
           "when": "false"
         },
         {
@@ -368,6 +418,16 @@
           "command": "spine.runs.openPlan",
           "when": "view == spine.runs && viewItem =~ /:openPlan:/",
           "group": "2_open"
+        },
+        {
+          "command": "spine.runs.openTestOutput",
+          "when": "view == spine.runs && viewItem =~ /:openTestOutput:/",
+          "group": "2_open"
+        },
+        {
+          "command": "spine.runs.discard",
+          "when": "view == spine.runs && viewItem =~ /:discard:/",
+          "group": "1_decide"
         }
       ],
       "explorer/context": [
