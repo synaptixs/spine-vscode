@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-11-25
 
 Fixes from a field report, on Spine 3.71.0 (the pin was 3.68.0). Discard, Open test output, the
 stale-plan warning and the site and checkout on a refusal use the fields 3.71.0 adds.
