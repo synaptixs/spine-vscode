@@ -2,9 +2,8 @@
 
 ## Unreleased
 
-Fixes from a field report. The folder, failed-stage and Edit spec fixes work on Spine 3.68.0;
-Discard, Open test output, the stale-plan warning and the site and checkout on a refusal need the
-fields Spine 3.71.0 adds.
+Fixes from a field report, on Spine 3.71.0 (the pin was 3.68.0). Discard, Open test output, the
+stale-plan warning and the site and checkout on a refusal use the fields 3.71.0 adds.
 
 - The right folder (SSPN-404): with several folders open, Spine used to read the first one, and
   that folder's `.env`, whatever you were working in, so planning from a Jira ticket failed. It
@@ -36,6 +35,9 @@ a dead run parked on its own failing tests. Spine now keeps run
   uncommitted changes (a build uses only committed code). They offer **Re-plan ($0)**, except on a
   dirty tree, where re-planning cannot help: commit or stash first. Approve anyway still names who is
   approving. The status tooltip says so too.
+- Spine pinned to 3.71.0. Spine now keeps runs under `$XDG_STATE_HOME/spine/runs` (else
+  `~/.local/state/spine/runs`), so the extension also passes `XDG_STATE_HOME` to its server: the
+  Runs view and `orchestrator sdlc runs` in a terminal still read one store.
 - "Spine planned …" names the Jira or Confluence site. A refusal names the checkout Spine planned
   in, and for a Jira or Confluence source whether its `.env` names a site (SSPN-404).
 

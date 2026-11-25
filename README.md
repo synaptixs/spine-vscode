@@ -104,8 +104,8 @@ To build the `.vsix` yourself from this repository: `npm ci && npm run compile &
     terminal are shown, and are decided in the terminal (`orchestrator sdlc runs`).
   - A failed build, or a dead one parked on its own failing tests, offers **Open test output**
     (Spine 3.71): the last test run's full output. Its tooltip names the failing tests.
-  - The extension tells its Spine server where runs are kept (`TMPDIR`, `SPINE_RUN_STATE`,
-    `SPINE_RUN_ARTIFACTS`), so the panel and `orchestrator sdlc runs` in a terminal see the same runs.
+  - The extension tells its Spine server where runs are kept (`XDG_STATE_HOME`, `TMPDIR`,
+    `SPINE_RUN_STATE`, `SPINE_RUN_ARTIFACTS`), so the panel and `orchestrator sdlc runs` in a terminal see the same runs.
 
 ## Settings
 
@@ -124,7 +124,7 @@ In Restricted Mode a workspace's own value for any of these is ignored.
 - [`uv`](https://docs.astral.sh/uv/). The extension starts Spine with one pinned line, so Spine itself does not need to be installed:
 
   ```
-  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.68.0' orchestrator-mcp
+  uvx --python '>=3.12' --from 'synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.71.0' orchestrator-mcp
   ```
 
   `--python '>=3.12'` lets uv fetch a suitable Python where the system one is older (Debian 12, Ubuntu 22.04).

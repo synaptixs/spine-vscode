@@ -1,9 +1,9 @@
 import * as assert from "node:assert/strict";
 import { spineLaunch } from "../../src/launch";
 
-// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.68.0). A literal on
+// Copied by hand from the pinned variant in Spine's AGENT_GUIDE §3 (3.71.0). A literal on
 // purpose: drift in the version or in the extras list must fail here, not in a user's editor.
-const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.68.0";
+const GUIDE_PINNED_FROM = "synaptixs-spine[mcp,docs,c,cpp,csharp,go,java,kotlin,perl,php,sql,typescript]==3.71.0";
 
 describe("spineLaunch", () => {
   it("starts Spine with the guide's pinned uvx line by default", () => {
@@ -38,13 +38,15 @@ describe("spineLaunch", () => {
     assert.equal("env" in spineLaunch(undefined, undefined, {}), false);
   });
 
-  // D88: the MCP SDK hands the server only HOME, LOGNAME, PATH, SHELL, TERM and USER. Without the
-  // temp dir Spine keeps its runs under /tmp, a different store from `sdlc runs` in a terminal.
+  // D88: the MCP SDK hands the server only HOME, LOGNAME, PATH, SHELL, TERM and USER. Spine 3.71 keeps
+  // its runs under $XDG_STATE_HOME (else ~/.local/state) and still reads the old $TMPDIR store: without
+  // both, the editor's Spine reads a different store from `sdlc runs` in a terminal.
   it("passes where Spine keeps its runs, so the panel and the terminal share one store", () => {
-    const inherited = { TMPDIR: "/var/folders/x/T/", SPINE_RUN_STATE: "/runs/state", SPINE_RUN_ARTIFACTS: "/runs/art" };
+    const inherited = { TMPDIR: "/var/folders/x/T/", SPINE_RUN_STATE: "/runs/state", SPINE_RUN_ARTIFACTS: "/runs/art", XDG_STATE_HOME: "/home/u/state" };
     assert.deepEqual(spineLaunch(undefined, "build", inherited).env, {
       ORCHESTRATOR_MCP_LEVEL: "build",
       TMPDIR: "/var/folders/x/T/",
+      XDG_STATE_HOME: "/home/u/state",
       SPINE_RUN_STATE: "/runs/state",
       SPINE_RUN_ARTIFACTS: "/runs/art",
     });

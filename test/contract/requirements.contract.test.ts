@@ -1,5 +1,5 @@
 /**
- * Plan from requirement (SSPN-246) against the REAL Spine 3.68.0 (SSPN-279), free: the extension's
+ * Plan from requirement (SSPN-246) against the REAL pinned Spine (3.68.0 and later, SSPN-279), free: the extension's
  * own flow and seam on a requirement whose spec is seeded into Spine's intake cache through Spine's
  * own Python (test/support/seedIntake.ts). No model is called: the checkout has no `.env`, so a
  * derivation would fail rather than spend. The one real extraction is D108's paid run, not here.
