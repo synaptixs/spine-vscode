@@ -3,7 +3,7 @@
  * Spine's AGENT_GUIDE §3, so only `uv` has to be installed. Bump SPINE_VERSION on each Spine
  * release, together with the contract test run against it.
  */
-export const SPINE_VERSION = "3.68.0";
+export const SPINE_VERSION = "3.71.0";
 
 /** Every wheel-only language extra (Spine D23); `[all]` fails to install where Rust's grammar must build from source. */
 export const SPINE_EXTRAS = ["mcp", "docs", "c", "cpp", "csharp", "go", "java", "kotlin", "perl", "php", "sql", "typescript"] as const;
@@ -19,11 +19,12 @@ export const LEVEL_ENV = "ORCHESTRATOR_MCP_LEVEL";
 
 /**
  * Where Spine keeps its run records, approvals and run artifacts (D88). The MCP SDK hands a server
- * only HOME, LOGNAME, PATH, SHELL, TERM and USER, and without the temp dir Spine keeps its runs under
- * /tmp: a different store from `sdlc runs` in a terminal. Nothing else is passed: the model key and
- * the budget come from the checkout's `.env`, which Spine reads itself.
+ * only HOME, LOGNAME, PATH, SHELL, TERM and USER. Spine 3.71 keeps its runs under `$XDG_STATE_HOME`
+ * (else `~/.local/state`) and still reads the store it kept under the temp dir before: without both,
+ * the editor's Spine reads a different store from `sdlc runs` in a terminal. Nothing else is passed:
+ * the model key and the budget come from the checkout's `.env`, which Spine reads itself.
  */
-export const RUN_STORE_ENV = ["TMPDIR", "SPINE_RUN_STATE", "SPINE_RUN_ARTIFACTS"] as const;
+export const RUN_STORE_ENV = ["TMPDIR", "XDG_STATE_HOME", "SPINE_RUN_STATE", "SPINE_RUN_ARTIFACTS"] as const;
 
 /**
  * Where Spine caches the specs its intake model derived (D110, SSPN-246), for the same reason: a

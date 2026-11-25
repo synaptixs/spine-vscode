@@ -30,6 +30,7 @@ const prompts: Prompts = {
       ignoreFocusOut: true,
       validateInput: (value) => (value.trim() ? undefined : "A rejection needs a note."),
     }),
+  choose: async (message, actions) => vscode.window.showWarningMessage(message, { modal: true }, ...actions),
   info: (message) => void vscode.window.showInformationMessage(message),
   warn: (message) => void vscode.window.showWarningMessage(message),
 };
@@ -220,6 +221,13 @@ export class SpinePlans implements vscode.TextDocumentContentProvider, vscode.Di
     }
     // Builds run in the folder in use: a plan approved in another folder is not this folder's (B178).
     this.review().assertHere(view);
+    // B182: the build derives the plan again; one from another commit parks at its gate.
+    const go = await this.review().beforeBuild(view, prompts);
+    if (go.replanned) {
+      this.store(go.replanned);
+      void vscode.window.showInformationMessage(`Spine: re-planned ${view.intentId} for $0. Read it, approve it, then build.`);
+    }
+    if (!go.build) return;
     await this.onBuild(view.intentId);
   }
 

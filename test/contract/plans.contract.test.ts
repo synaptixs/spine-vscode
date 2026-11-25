@@ -4,6 +4,7 @@
  * `sdlc_approve(expected_digest)`); until the pin reaches it, set SPINE_SERVER_PATH to a build.
  */
 import * as assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import { localCalls, PlanMovedError } from "../../src/calls";
 import { SpineClient } from "../../src/client";
@@ -85,6 +86,19 @@ describe("plan review against the real Spine (SSPN-243)", () => {
     assert.notEqual(reopened.digest, before.digest);
     await assert.rejects(r.decide(before, { reject: false }), PlanMovedError);
     assert.equal((await r.open(fixture.intentId)).state, "stale");
+  });
+
+  it("says a plan is no longer the checkout's after a commit, and Re-plan makes it fresh again (B182, D126, Spine 3.71)", async () => {
+    const r = review("plan");
+    const before = await r.open(fixture.intentId);
+    execFileSync("git", ["add", "-A"], { cwd: fixture.root });
+    execFileSync("git", ["commit", "-qm", "a commit after the plan"], { cwd: fixture.root });
+    const moved = await r.open(fixture.intentId);
+    assert.equal(moved.fresh, false);
+    assert.equal(moved.derivedAt, before.derivedAt);
+    assert.notEqual(moved.derivedNow, moved.derivedAt);
+    const replanned = await r.replanFromKept(fixture.intentId, fixture.root);
+    assert.equal(replanned.fresh, true, `${replanned.derivedAt} vs ${replanned.derivedNow}`);
   });
 
   it("re-plans from the spec Spine kept, edited: no model, the new text, an approval of the old one stale (B180, D127)", async () => {

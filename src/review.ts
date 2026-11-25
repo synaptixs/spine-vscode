@@ -14,6 +14,7 @@
  * - Restricted Mode calls nothing, over either transport (D12).
  */
 import { execFile } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { PlanMovedError, type SpineCalls } from "./calls";
 import { RestrictedWorkspaceError } from "./client";
@@ -41,6 +42,11 @@ export interface PlanView {
   approver: string;
   /** The checkout (or, remotely, the server's path) the plan was read from (B178). */
   repo: string;
+  /** The commit the plan was derived at, and the checkout's now (Spine 3.71, B182); "" from an older Spine. */
+  derivedAt: string;
+  derivedNow: string;
+  /** `false` when they differ or the tree is dirty: the build would refuse this approval. Unknown from an older Spine. */
+  fresh?: boolean;
 }
 
 export interface Listed {
@@ -51,6 +57,8 @@ export interface Listed {
 
 export interface Prompts {
   confirm(message: string, action: string): Promise<boolean>;
+  /** One of `actions`, or `undefined` when the person dismissed it. */
+  choose(message: string, actions: string[]): Promise<string | undefined>;
   /** A rejection's note; `undefined` when the person cancelled. */
   note(intentId: string): Promise<string | undefined>;
   info(message: string): void;
@@ -66,7 +74,13 @@ export interface PlanReviewOptions {
   repo: () => string | undefined;
   isTrusted: () => boolean;
   approverName: () => Promise<string>;
+  /** Reads a kept spec (B182's Re-plan); the file system unless a test gives its own. */
+  readFile?: (file: string) => string;
 }
+
+export const APPROVE_ANYWAY = "Approve anyway";
+export const BUILD_ANYWAY = "Build anyway";
+export const REPLAN = "Re-plan ($0)";
 
 export const NOT_A_GATE = "a signed record, not a gate on the build";
 const NO_DIGEST = "Spine gave no digest for this plan, so a decision would bind to nothing: update Spine";
@@ -112,6 +126,9 @@ export class PlanReview {
       remote: calls.remote,
       approver,
       repo,
+      derivedAt: typeof out.derived_at === "string" ? out.derived_at : "",
+      derivedNow: typeof out.derived_now === "string" ? out.derived_now : "",
+      ...(typeof out.fresh === "boolean" ? { fresh: out.fresh } : {}),
     };
   }
 
@@ -171,12 +188,62 @@ export class PlanReview {
     return { calls, repo };
   }
 
+  /** Re-plan from the spec Spine kept, unchanged: the plan at today's commit, for $0 (B182). */
+  async replanFromKept(intentId: string, at: string): Promise<PlanView> {
+    const { repo } = this.bound(at);
+    const file = specFile(repo, intentId);
+    let spec: Record<string, unknown>;
+    try {
+      spec = JSON.parse((this.options.readFile ?? ((f) => fs.readFileSync(f, "utf8")))(file)) as Record<string, unknown>;
+    } catch (err) {
+      throw new Error(`cannot re-plan ${intentId} from ${file}: ${(err as Error).message}`);
+    }
+    return this.replan(intentId, spec, repo);
+  }
+
+  /**
+   * `view` with its freshness asked of Spine again (B182): a commit since the plan was opened changes
+   * no plan file, so nothing else would notice (review of #15). One read, nothing spent.
+   */
+  private async freshNow(view: PlanView): Promise<PlanView> {
+    const again = await this.open(view.intentId, view.repo);
+    const now: PlanView = { ...view, derivedAt: again.derivedAt, derivedNow: again.derivedNow };
+    if (again.fresh === undefined) delete now.fresh;
+    else now.fresh = again.fresh;
+    return now;
+  }
+
+  /**
+   * Before a build of an approved plan (B182): the build derives the plan again and parks at its gate
+   * when the plan is from another commit. `replanned` is the plan to show when Re-plan was chosen.
+   */
+  async beforeBuild(view: PlanView, prompts: Prompts): Promise<{ build: boolean; replanned?: PlanView }> {
+    const now = await this.freshNow(view);
+    if (now.fresh !== false) return { build: true };
+    const choice = await prompts.choose(staleMessage(now, "build"), canReplan(now) ? [BUILD_ANYWAY, REPLAN] : [BUILD_ANYWAY]);
+    if (choice === BUILD_ANYWAY) return { build: true };
+    if (choice === REPLAN) return { build: false, replanned: await this.replanFromKept(view.intentId, view.repo) };
+    return { build: false };
+  }
+
   /** The Approve button: confirm who is approving, then decide. `undefined` when nothing was recorded. */
-  async approve(view: PlanView, prompts: Prompts): Promise<PlanView | undefined> {
-    if (!view.canDecide) return void prompts.warn(`Spine: you cannot approve ${view.intentId}: ${view.reason}`);
-    const message = view.remote
-      ? `Approve ${view.intentId} on ${view.server}? The server records who approves: with a company sign-in, that is you. This is ${NOT_A_GATE}.`
-      : `Approve ${view.intentId}, approving as ${view.approver}?`;
+  async approve(given: PlanView, prompts: Prompts): Promise<PlanView | undefined> {
+    if (!given.canDecide) return void prompts.warn(`Spine: you cannot approve ${given.intentId}: ${given.reason}`);
+    // B182: the build derives the plan again, and the commit stamp is part of what is approved.
+    const view = given.fresh === undefined && !given.derivedNow ? given : await this.freshNow(given);
+    if (view.fresh === false) {
+      const actions = canReplan(view) ? [APPROVE_ANYWAY, REPLAN] : [APPROVE_ANYWAY];
+      // The confirm it stands in for names who is approving; so does this one.
+      const choice = await prompts.choose(`${staleMessage(view)} ${approvingAs(view)}`, actions);
+      if (choice === REPLAN) {
+        const after = await this.replanFromKept(view.intentId, view.repo);
+        prompts.info(`Spine: re-planned ${view.intentId} at ${after.derivedNow || "the checkout's commit"}, for $0. Read it, then approve.`);
+        return after;
+      }
+      if (choice !== APPROVE_ANYWAY) return undefined;
+      return this.settle(view, { reject: false }, prompts, "Approved");
+    }
+    const message = view.remote ? `Approve ${view.intentId} on ${view.server}? ${approvingAs(view)}` : `Approve ${view.intentId}, approving as ${view.approver}?`;
     if (!(await prompts.confirm(message, "Approve"))) return undefined;
     return this.settle(view, { reject: false }, prompts, "Approved");
   }
@@ -227,6 +294,33 @@ export class PlanReview {
 
 const short = (digest: string) => digest.slice(0, 8);
 
+/** Spine's own rule: a plan derived while the tree has uncommitted changes is never fresh. */
+const dirty = (view: PlanView) => view.derivedNow.endsWith("-dirty");
+/** Re-planning reads the local spec, and from a dirty tree it is stale again at once (review of #15). */
+const canReplan = (view: PlanView) => !view.remote && !dirty(view);
+
+function approvingAs(view: PlanView): string {
+  return view.remote ? `The server records who approves: with a company sign-in, that is you. This is ${NOT_A_GATE}.` : `Locally you are approving as ${view.approver}.`;
+}
+
+/** The warning before approving or building a plan from another commit or a dirty tree (B182). */
+export function staleMessage(view: PlanView, purpose: "approve" | "build" = "approve"): string {
+  const head = `${view.intentId} was derived at ${view.derivedAt || "an unknown commit"}, and the checkout is now at ${view.derivedNow || "an unknown commit"}. `;
+  const gate =
+    purpose === "build"
+      ? "The build derives the plan again, so a build now would park at the plan gate. "
+      : "The build derives the plan again, so the build will refuse this approval and park. ";
+  if (dirty(view) && view.derivedAt === view.derivedNow) {
+    // Equal stamps pass the build gate; the plan is still not what a build of the commit would do.
+    return `${head}The checkout has uncommitted changes: a build uses only committed code, so this plan does not describe what would be built. Commit or stash them, then re-plan.`;
+  }
+  if (view.remote) return `${head}${gate}Plan it again on the server first.`;
+  if (dirty(view)) return `${head}${gate}The checkout also has uncommitted changes: commit or stash them, then re-plan.`;
+  return purpose === "build"
+    ? `${head}${gate}Re-plan it for $0 (no model); its approval no longer holds after that, and you read and approve it again before building.`
+    : `${head}${gate}Re-plan it for $0 (no model) and read it again, or approve it anyway.`;
+}
+
 /** The status line for an open plan: state, approver, short digest; the tooltip says where and who. */
 export function statusText(view: PlanView): { text: string; tooltip: string } {
   const by = view.approval?.decided_by ?? "";
@@ -244,6 +338,7 @@ export function statusText(view: PlanView): { text: string; tooltip: string } {
       : `Locally you are approving as ${view.approver || "nobody: set git config user.name"}.`,
   ];
   if (!view.remote) lines.push(`File: ${planFile(view.repo, view.intentId)} (read-only here: change it with Edit spec…)`);
+  if (view.fresh === false) lines.push(`Derived at ${view.derivedAt}; the checkout is now at ${view.derivedNow}: re-plan before approving.`);
   if (view.approval) lines.push(`Decided ${view.approval.decided_at} on digest ${short(view.approval.digest)}.`);
   if (!view.canDecide) lines.push(`You cannot decide: ${view.reason}`);
   return { text: `$(${icon}) Spine plan ${view.intentId}: ${said} · ${short(view.digest)}`, tooltip: lines.join("\n") };
